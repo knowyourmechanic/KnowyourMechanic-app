@@ -696,6 +696,43 @@ export async function notifyInvoice(serviceRecordId: string): Promise<void> {
     if (error) throw new Error(error.message || 'Invoice notification failed.');
 }
 
+// ---- Fee settlement (garage pays KYM the accrued platform fees) ----------
+export interface GarageSettlement {
+    outstanding: number;  // all-time owed (rupees)
+    dueNow: number;       // owed from before today — clearing this lifts the lock
+    locked: boolean;      // next-day lock active
+}
+
+// The garage's fee-settlement status (owed amount + whether the lock is on).
+export async function getMyGarageSettlement(garageId: string): Promise<GarageSettlement> {
+    const { data, error } = await supabase
+        .rpc('garage_settlement_status', { p_garage_id: garageId })
+        .single();
+    if (error || !data) return { outstanding: 0, dueNow: 0, locked: false };
+    const d = data as { outstanding: number; due_now: number; locked: boolean };
+    return { outstanding: Number(d.outstanding || 0), dueNow: Number(d.due_now || 0), locked: !!d.locked };
+}
+
+export interface FeeSettlementOrder {
+    orderId?: string;
+    amount?: number;    // paise
+    currency?: string;
+    keyId?: string;     // Razorpay key id for Checkout
+    nothingDue?: boolean;
+}
+
+// Asks the server to create a Razorpay order for the garage's owed fees. The
+// server prices it from the ledger (the client never sets the amount). The
+// returned order is opened with Razorpay Standard Checkout in-app; the webhook
+// clears the ledger once payment is verified server-side.
+export async function createFeeSettlementOrder(garageId: string): Promise<FeeSettlementOrder> {
+    const { data, error } = await supabase.functions.invoke('razorpay-create-order', {
+        body: { garageId },
+    });
+    if (error) throw new Error(error.message || 'Could not start settlement.');
+    return data as FeeSettlementOrder;
+}
+
 // Creates a service record + taxonomy join rows via the SECURITY DEFINER RPC.
 // (OTP generation/delivery happens later via the service-record-create Edge
 // Function once it is deployed.)
