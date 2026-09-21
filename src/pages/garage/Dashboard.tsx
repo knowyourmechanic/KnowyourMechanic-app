@@ -9,6 +9,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getMyGarage, getGarageServiceRecords } from '../../lib/data';
 
 import AddServiceModal from '../../components/AddServiceModal';
+import FeeSettlementCard from '../../components/FeeSettlementCard';
 import { DashboardSkeleton } from '../../components/Loaders';
 
 interface Booking {
@@ -40,7 +41,7 @@ interface ServiceRecord {
     amount: number;
     platformFee: number;
     garageEarnings: number;
-    paymentMethod: 'cash' | 'razorpay';
+    paymentMethod: string;   // 'qr' (UPI) | 'cash'
     status: string;
     isReliable: boolean;
     createdAt: string;
@@ -62,6 +63,7 @@ export default function GarageDashboard() {
     const [workingDays, setWorkingDays] = useState<string[]>(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const [garageId, setGarageId] = useState('');
+    const [feeReload, setFeeReload] = useState(0);   // bump to re-check fees owed
 
     const navigate = useNavigate();
     const { userData, logout } = useAuth();
@@ -115,6 +117,7 @@ export default function GarageDashboard() {
     // Called by the add-service modal after creating a record.
     const fetchServices = async () => {
         if (garageId) await loadServices(garageId);
+        setFeeReload((v) => v + 1);   // a completed UPI service accrues a fee
     };
 
     const handleLogout = async () => {
@@ -326,6 +329,9 @@ export default function GarageDashboard() {
                     </div>
                 </div>
 
+                {/* Platform fees owed to KYM (settle in-app via Razorpay) */}
+                {garageId && <FeeSettlementCard garageId={garageId} garageName={garageName} reloadSignal={feeReload} />}
+
                 {/* Add Service Record Button */}
                 <div className="mb-6">
                     <button
@@ -407,8 +413,8 @@ export default function GarageDashboard() {
                                         </div>
                                         <div className="text-right">
                                             <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">₹{service.garageEarnings}</p>
-                                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${service.paymentMethod === 'razorpay' ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600' : 'bg-amber-50 dark:bg-amber-950/40 text-amber-600'}`}>
-                                                {service.paymentMethod === 'razorpay' ? 'Online' : 'Cash'}
+                                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${service.paymentMethod === 'qr' ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600' : 'bg-amber-50 dark:bg-amber-950/40 text-amber-600'}`}>
+                                                {service.paymentMethod === 'qr' ? 'UPI' : 'Cash'}
                                             </span>
                                         </div>
                                     </div>

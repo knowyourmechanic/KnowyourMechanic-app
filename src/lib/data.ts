@@ -703,6 +703,15 @@ export interface GarageSettlement {
     locked: boolean;      // next-day lock active
 }
 
+// Whether the in-app fee-settlement flow is switched on (admin flag). The pay
+// UI stays hidden until this is true, so garages never see a Pay button before
+// the Edge Functions + Razorpay keys are live.
+export async function isFeeSettlementEnabled(): Promise<boolean> {
+    const { data, error } = await supabase.rpc('app_flag', { p_key: 'fee_settlement_enabled' });
+    if (error) return false;
+    return !!data;
+}
+
 // The garage's fee-settlement status (owed amount + whether the lock is on).
 export async function getMyGarageSettlement(garageId: string): Promise<GarageSettlement> {
     const { data, error } = await supabase
