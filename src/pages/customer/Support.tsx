@@ -14,8 +14,8 @@ const faqs = [
         answer: 'Look for the star rating, number of reviews, and total services completed. Garages with higher ratings and more services have a proven track record.'
     },
     {
-        question: 'What does "Verified" vs "Cash" payment mean?',
-        answer: '"Verified" means you paid by UPI and confirmed the service with an OTP, so it is recorded as a trusted transaction. "Cash" payments are unverified and marked "Not Trusted". Verified services offer better protection.'
+        question: 'How is my service recorded?',
+        answer: 'Every service you confirm with the OTP is saved to your history with the garage name, date, and amount. Sharing the OTP is your confirmation that the work was actually done.'
     },
     {
         question: 'How do I leave a review?',

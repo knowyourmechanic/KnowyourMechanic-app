@@ -11,11 +11,11 @@ const faqs = [
     },
     {
         question: 'What is the platform fee?',
-        answer: 'A flat ₹3.90 platform fee applies to each UPI service — not a percentage. The customer pays it as part of the amount, and you settle the collected fees to KYM once a day. Cash services are fee-free (but marked Not Trusted).'
+        answer: 'A flat ₹3.90 platform fee applies to every completed service — not a percentage. The customer pays it as part of the amount, and you settle the collected fees to KYM once a day.'
     },
     {
         question: 'How do customers pay?',
-        answer: 'The customer scans your UPI payment QR and pays you directly (service amount + ₹3.90 fee); you tap "Received" to complete it. These are marked "Verified" and build your credibility. Cash is also allowed, but is fee-free and marked "Not Trusted".'
+        answer: 'The customer scans your UPI payment QR and pays you directly (service amount + ₹3.90 fee); you tap "Received" to complete it. You settle the platform fees you have collected to KYM once a day.'
     },
     {
         question: 'How do I update my garage profile?',

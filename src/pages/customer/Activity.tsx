@@ -164,7 +164,6 @@ h1{font-size:22px;margin:0 0 4px}.muted{color:#64748b;font-size:13px}
 <div class="row"><span class="muted">Garage</span><span>${service.garageId?.name || 'Garage'}</span></div>
 <div class="row"><span class="muted">Service</span><span>${service.description || '-'}</span></div>
 <div class="row"><span class="muted">Date</span><span>${formatDate(service.createdAt)}</span></div>
-<div class="row"><span class="muted">Payment</span><span>${(service.paymentMethod || 'cash').toUpperCase()} ${service.isReliable ? '<span class="badge">Verified</span>' : ''}</span></div>
 <div class="row"><span class="muted">Invoice ID</span><span>${service._id}</span></div>
 <div class="row total"><span>Total</span><span>&#8377;${service.amount}</span></div>
 </div><p class="muted">Thank you for using KnowYourMechanic.</p></body></html>`;
@@ -239,17 +238,9 @@ h1{font-size:22px;margin:0 0 4px}.muted{color:#64748b;font-size:13px}
 
                                 {/* Date, Amount */}
                                 <div className="flex items-center justify-between py-3 border-t border-slate-100 dark:border-[var(--app-border)]">
-                                    <div className="flex items-center gap-3">
-                                        <div className="flex items-center gap-1 text-slate-500 dark:text-[var(--app-muted)] text-sm">
-                                            <Calendar className="w-4 h-4" />
-                                            {formatDate(service.createdAt)}
-                                        </div>
-                                        <div className={`text-xs px-2 py-0.5 rounded-full ${service.isReliable
-                                            ? 'bg-green-50 dark:bg-green-950/40 text-green-600'
-                                            : 'bg-amber-50 dark:bg-amber-950/40 text-amber-600'
-                                            }`}>
-                                            {service.isReliable ? 'Verified' : 'Cash'}
-                                        </div>
+                                    <div className="flex items-center gap-1 text-slate-500 dark:text-[var(--app-muted)] text-sm">
+                                        <Calendar className="w-4 h-4" />
+                                        {formatDate(service.createdAt)}
                                     </div>
                                     <span className="font-bold text-lg text-slate-900 dark:text-[var(--app-text)]">₹{service.amount}</span>
                                 </div>

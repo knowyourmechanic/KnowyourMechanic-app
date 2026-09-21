@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Phone, IndianRupee, Send, Loader2, Check, QrCode, Banknote, ShieldCheck, AlertTriangle, ArrowLeft } from 'lucide-react';
+import { X, Phone, IndianRupee, Send, Loader2, Check, AlertTriangle } from 'lucide-react';
 import {
     createServiceRecordWithOtp,
     verifyServiceOtp,
@@ -18,10 +18,10 @@ interface AddServiceModalProps {
 }
 
 type Step = 'form' | 'otp' | 'payment' | 'success';
-type PayView = 'choose' | 'qr' | 'cashConfirm';
 
-// The platform fee the garage owes KYM per digital service (shown to the
-// customer as part of the amount to pay; the server is the source of truth).
+// The flat platform fee per service (shown as part of the amount to pay; the
+// server is the source of truth). It applies to every completed service — we
+// can't see how the customer actually paid, so there is no separate cash mode.
 const PLATFORM_FEE = 3.9;
 
 export default function AddServiceModal({ isOpen, garageId, onClose, onSuccess }: AddServiceModalProps) {
@@ -38,7 +38,6 @@ export default function AddServiceModal({ isOpen, garageId, onClose, onSuccess }
     const [devOtp, setDevOtp] = useState('');
     const [otp, setOtp] = useState('');
     const [summary, setSummary] = useState<PaymentSummary | null>(null);
-    const [payView, setPayView] = useState<PayView>('choose');
     const [garageQrUrl, setGarageQrUrl] = useState<string | null>(null);
 
     useEffect(() => {
@@ -46,7 +45,7 @@ export default function AddServiceModal({ isOpen, garageId, onClose, onSuccess }
             setStep('form'); setError(''); setCustomerPhone(''); setVehicleNumber('');
             setNotes(''); setAmount('');
             setRecordId(''); setDevOtp(''); setOtp(''); setSummary(null);
-            setPayView('choose'); setGarageQrUrl(null);
+            setGarageQrUrl(null);
         }
     }, [isOpen]);
 
@@ -103,7 +102,6 @@ export default function AddServiceModal({ isOpen, garageId, onClose, onSuccess }
             if (res.ok) {
                 // Load the garage's static QR so the customer can pay directly.
                 getMyGarageQr(garageId).then(setGarageQrUrl).catch(() => setGarageQrUrl(null));
-                setPayView('choose');
                 setStep('payment');
             } else {
                 setError(
@@ -121,11 +119,12 @@ export default function AddServiceModal({ isOpen, garageId, onClose, onSuccess }
         }
     };
 
-    const handlePayment = async (method: 'qr' | 'cash') => {
+    const handleComplete = async () => {
         setError('');
         setLoading(true);
         try {
-            const s = await completeServicePayment(recordId, method);
+            // Always 'qr' — the fee applies to every service; there is no cash mode.
+            const s = await completeServicePayment(recordId, 'qr');
             setSummary(s);
             setStep('success');
             // Fire the invoice notification (push/WhatsApp). Best-effort: payment
@@ -226,79 +225,34 @@ export default function AddServiceModal({ isOpen, garageId, onClose, onSuccess }
                             </div>
                         )}
 
-                        {/* ---- PAYMENT ---- */}
+                        {/* ---- PAYMENT (show QR, collect, mark received) ---- */}
                         {step === 'payment' && (
                             <div className="p-6 space-y-4">
                                 {error && <p className="text-red-500 text-sm font-medium text-center bg-red-50 dark:bg-red-950/40 py-2 rounded-lg">{error}</p>}
 
-                                {/* Choose payment method */}
-                                {payView === 'choose' && (
-                                    <>
-                                        <p className="text-slate-500 dark:text-[var(--app-muted)]">Paying by UPI is a <b className="text-slate-700 dark:text-[var(--app-text)]">verified, trusted</b> transaction. Cash is unverified — the service will be marked <b className="text-amber-700 dark:text-amber-300">Not Trusted</b> on the customer's record.</p>
-                                        <button onClick={() => setPayView('qr')} disabled={loading}
-                                            className="w-full h-16 btn-premium rounded-2xl font-bold text-lg text-white flex items-center justify-center gap-2 disabled:opacity-40">
-                                            <QrCode className="w-5 h-5" /> Pay by UPI (verified)
-                                        </button>
-                                        <button onClick={() => setPayView('cashConfirm')} disabled={loading}
-                                            className="w-full h-16 bg-slate-900 dark:bg-slate-800 rounded-2xl font-bold text-lg text-white flex items-center justify-center gap-2 disabled:opacity-40">
-                                            <Banknote className="w-5 h-5" /> Cash (fee-free, not trusted)
-                                        </button>
-                                    </>
-                                )}
+                                <p className="text-slate-500 dark:text-[var(--app-muted)] text-center">Ask the customer to scan and pay this amount.</p>
 
-                                {/* Show the garage's static QR + amount, then Receive */}
-                                {payView === 'qr' && (
-                                    <>
-                                        <p className="text-slate-500 dark:text-[var(--app-muted)] text-center">Ask the customer to scan and pay this amount.</p>
-
-                                        <div className="bg-slate-50 dark:bg-[var(--app-bg)] rounded-2xl p-4 flex flex-col items-center">
-                                            {garageQrUrl ? (
-                                                <img src={garageQrUrl} alt="Garage payment QR" className="w-52 h-52 object-contain rounded-xl bg-white p-2" />
-                                            ) : (
-                                                <div className="w-52 h-52 rounded-xl border-2 border-dashed border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/30 flex flex-col items-center justify-center text-center px-4">
-                                                    <AlertTriangle className="w-7 h-7 text-amber-600 mb-2" />
-                                                    <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">No payment QR set yet</p>
-                                                    <p className="text-xs text-amber-700 dark:text-amber-300/90 mt-1">Add one in Settings → Payment QR, or collect by cash.</p>
-                                                </div>
-                                            )}
-                                            <div className="w-full mt-4 space-y-1.5">
-                                                <div className="flex justify-between text-sm"><span className="text-slate-500 dark:text-[var(--app-muted)]">Service amount</span><span className="font-semibold">₹{Number(amount || 0).toFixed(2)}</span></div>
-                                                <div className="flex justify-between text-sm"><span className="text-slate-500 dark:text-[var(--app-muted)]">Platform fee</span><span className="font-semibold">₹{PLATFORM_FEE.toFixed(2)}</span></div>
-                                                <div className="flex justify-between text-base pt-1.5 border-t border-slate-200 dark:border-[var(--app-border)]"><span className="font-bold text-slate-900 dark:text-[var(--app-text)]">Amount to pay</span><span className="font-black text-slate-900 dark:text-[var(--app-text)]">₹{feeTotal.toFixed(2)}</span></div>
-                                            </div>
+                                <div className="bg-slate-50 dark:bg-[var(--app-bg)] rounded-2xl p-4 flex flex-col items-center">
+                                    {garageQrUrl ? (
+                                        <img src={garageQrUrl} alt="Garage payment QR" className="w-52 h-52 object-contain rounded-xl bg-white p-2" />
+                                    ) : (
+                                        <div className="w-52 h-52 rounded-xl border-2 border-dashed border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/30 flex flex-col items-center justify-center text-center px-4">
+                                            <AlertTriangle className="w-7 h-7 text-amber-600 mb-2" />
+                                            <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">No payment QR set yet</p>
+                                            <p className="text-xs text-amber-700 dark:text-amber-300/90 mt-1">Add one in Settings → Payment QR so customers can scan and pay.</p>
                                         </div>
+                                    )}
+                                    <div className="w-full mt-4 space-y-1.5">
+                                        <div className="flex justify-between text-sm"><span className="text-slate-500 dark:text-[var(--app-muted)]">Service amount</span><span className="font-semibold">₹{Number(amount || 0).toFixed(2)}</span></div>
+                                        <div className="flex justify-between text-sm"><span className="text-slate-500 dark:text-[var(--app-muted)]">Platform fee</span><span className="font-semibold">₹{PLATFORM_FEE.toFixed(2)}</span></div>
+                                        <div className="flex justify-between text-base pt-1.5 border-t border-slate-200 dark:border-[var(--app-border)]"><span className="font-bold text-slate-900 dark:text-[var(--app-text)]">Amount to pay</span><span className="font-black text-slate-900 dark:text-[var(--app-text)]">₹{feeTotal.toFixed(2)}</span></div>
+                                    </div>
+                                </div>
 
-                                        <button onClick={() => handlePayment('qr')} disabled={loading}
-                                            className="w-full h-16 btn-premium rounded-2xl font-bold text-lg text-white flex items-center justify-center gap-2 disabled:opacity-40">
-                                            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />} Received — complete service
-                                        </button>
-                                        <button onClick={() => { setPayView('choose'); setError(''); }} disabled={loading}
-                                            className="w-full h-12 rounded-2xl font-semibold text-slate-600 dark:text-[var(--app-muted)] flex items-center justify-center gap-1">
-                                            <ArrowLeft className="w-4 h-4" /> Cancel
-                                        </button>
-                                    </>
-                                )}
-
-                                {/* Cash confirmation */}
-                                {payView === 'cashConfirm' && (
-                                    <>
-                                        <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 rounded-2xl p-4 flex gap-3">
-                                            <AlertTriangle className="w-6 h-6 text-amber-600 flex-shrink-0 mt-0.5" />
-                                            <div>
-                                                <p className="font-bold text-amber-900 dark:text-amber-200">Mark this service “Not Trusted”?</p>
-                                                <p className="text-sm text-amber-800 dark:text-amber-300/90 mt-1">Cash skips verification. This service will show as <b>Not Trusted</b> on the customer's record and won't carry the verified badge. This can't be changed later.</p>
-                                            </div>
-                                        </div>
-                                        <button onClick={() => handlePayment('cash')} disabled={loading}
-                                            className="w-full h-16 bg-slate-900 dark:bg-slate-800 rounded-2xl font-bold text-lg text-white flex items-center justify-center gap-2 disabled:opacity-40">
-                                            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Banknote className="w-5 h-5" />} Yes, complete with cash
-                                        </button>
-                                        <button onClick={() => { setPayView('choose'); setError(''); }} disabled={loading}
-                                            className="w-full h-12 rounded-2xl font-semibold text-slate-600 dark:text-[var(--app-muted)]">
-                                            Go back
-                                        </button>
-                                    </>
-                                )}
+                                <button onClick={handleComplete} disabled={loading}
+                                    className="w-full h-16 btn-premium rounded-2xl font-bold text-lg text-white flex items-center justify-center gap-2 disabled:opacity-40">
+                                    {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />} Received — complete service
+                                </button>
                             </div>
                         )}
 
@@ -314,7 +268,6 @@ export default function AddServiceModal({ isOpen, garageId, onClose, onSuccess }
                                     <div className="flex justify-between"><span className="text-slate-500 dark:text-[var(--app-muted)]">Customer paid</span><span className="font-bold">₹{Number(summary.customer_pays ?? 0).toFixed(2)}</span></div>
                                     <div className="flex justify-between"><span className="text-slate-500 dark:text-[var(--app-muted)]">Platform fee (you owe KYM)</span><span className="font-bold">₹{Number(summary.platform_fee ?? 0).toFixed(2)}</span></div>
                                     <div className="flex justify-between"><span className="text-slate-500 dark:text-[var(--app-muted)]">You keep</span><span className="font-bold">₹{Number(summary.garage_receives ?? 0).toFixed(2)}</span></div>
-                                    {summary.verified && <div className="flex items-center gap-1 text-green-600 font-semibold pt-1"><ShieldCheck className="w-4 h-4" /> Verified transaction</div>}
                                 </div>
                                 <button onClick={onSuccess} className="mt-6 w-full h-14 btn-premium rounded-2xl font-bold text-white">Done</button>
                             </div>
