@@ -2,15 +2,15 @@ import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
-    ArrowLeft, Building2, CreditCard,
-    Loader2, AlertTriangle, Landmark, User, Save, Eye, EyeOff, Check, Camera
+    ArrowLeft, Building2, QrCode, Upload,
+    Loader2, AlertTriangle, User, Save, Check, Camera
 } from 'lucide-react';
 import { CustomLoader } from '../../components/Loaders';
 import TimeRangePicker from '../../components/TimeRangePicker';
 import WorkingDaysPicker from '../../components/WorkingDaysPicker';
 import LocationPicker from '../../components/LocationPicker';
 import { useAuth } from '../../contexts/AuthContext';
-import { getMyGarage, saveGarageBusinessInfo, saveGarageBankDetails, getMyGaragePayout } from '../../lib/data';
+import { getMyGarage, saveGarageBusinessInfo, saveGarageQr, getMyGarageQr } from '../../lib/data';
 import RoleSwitcher from '../../components/RoleSwitcher';
 
 
@@ -26,14 +26,6 @@ interface BusinessInfo {
     legalBusinessName: string;
 }
 
-interface BankInfo {
-    accountNumber: string;
-    ifscCode: string;
-    accountHolderName: string;
-    bankName: string;
-    upiVpa: string;
-}
-
 export default function GarageSettings() {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
@@ -41,12 +33,11 @@ export default function GarageSettings() {
     const [uploadingPhoto, setUploadingPhoto] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
-    const [showBankNumber, setShowBankNumber] = useState(false);
-    const [editingBank, setEditingBank] = useState(false);
-    const [bankError, setBankError] = useState('');
-    const [fetchingBank, setFetchingBank] = useState(false);
     const [photoUrl, setPhotoUrl] = useState('');
+    const [qrUrl, setQrUrl] = useState('');
+    const [uploadingQr, setUploadingQr] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const qrInputRef = useRef<HTMLInputElement>(null);
 
     const [business, setBusiness] = useState<BusinessInfo>({
         name: '',
@@ -58,23 +49,6 @@ export default function GarageSettings() {
         workingDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
         businessType: 'individual',
         legalBusinessName: '',
-    });
-
-    const [bank, setBank] = useState<BankInfo>({
-        accountNumber: '',
-        ifscCode: '',
-        accountHolderName: '',
-        bankName: '',
-        upiVpa: '',
-    });
-
-    const [newBank, setNewBank] = useState<BankInfo & { confirmAccountNumber: string }>({
-        accountNumber: '',
-        confirmAccountNumber: '',
-        ifscCode: '',
-        accountHolderName: '',
-        bankName: '',
-        upiVpa: '',
     });
 
     const { userData } = useAuth();
@@ -102,10 +76,9 @@ export default function GarageSettings() {
                 });
                 if (g.photo_url) setPhotoUrl(g.photo_url);
 
-                // Load saved payout details (owner-only) so the bank section
-                // shows the existing account (masked) instead of appearing empty.
-                const payout = await getMyGaragePayout(g.id);
-                if (payout && payout.accountNumber) setBank(payout);
+                // Load the saved payment QR (owner-only) so the section shows it.
+                const qr = await getMyGarageQr(g.id);
+                if (qr) setQrUrl(qr);
             }
         } catch (err) {
             console.error('Error fetching garage details:', err);
@@ -147,80 +120,25 @@ export default function GarageSettings() {
         }
     };
 
-    const handleSaveBank = async () => {
-        if (newBank.accountNumber !== newBank.confirmAccountNumber) {
-            setBankError('Account numbers do not match');
-            return;
-        }
+    const handleQrUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (!file.type.startsWith('image/')) { setError('Please select an image file'); return; }
+        if (file.size > 5 * 1024 * 1024) { setError('QR image must be under 5MB'); return; }
+        if (!garageId) { setError('Save your business details first'); return; }
 
-        if (!newBank.accountNumber || !newBank.ifscCode || !newBank.accountHolderName) {
-            setBankError('All bank details are required');
-            return;
-        }
-
-        setSaving(true);
-        setBankError('');
+        setUploadingQr(true);
+        setError('');
         setSuccess('');
-
         try {
-            await saveGarageBankDetails(garageId, {
-                accountNumber: newBank.accountNumber,
-                ifscCode: newBank.ifscCode,
-                accountHolderName: newBank.accountHolderName,
-                bankName: newBank.bankName,
-                upiVpa: newBank.upiVpa,
-            });
-            {
-                setBank({
-                    accountNumber: newBank.accountNumber,
-                    ifscCode: newBank.ifscCode,
-                    accountHolderName: newBank.accountHolderName,
-                    bankName: newBank.bankName,
-                    upiVpa: newBank.upiVpa,
-                });
-                setEditingBank(false);
-                setNewBank({
-                    accountNumber: '',
-                    confirmAccountNumber: '',
-                    ifscCode: '',
-                    accountHolderName: '',
-                    bankName: '',
-                    upiVpa: '',
-                });
-                setSuccess('Bank details updated successfully!');
-                setTimeout(() => setSuccess(''), 3000);
-            }
+            const url = await saveGarageQr(garageId, file);
+            setQrUrl(url);
+            setSuccess('Payment QR updated successfully!');
+            setTimeout(() => setSuccess(''), 3000);
         } catch (err: any) {
-            setBankError(err.message || 'Failed to save bank details');
+            setError(err.message || 'Failed to upload QR');
         } finally {
-            setSaving(false);
-        }
-    };
-
-    const maskAccountNumber = (num: string) => {
-        if (!num || num.length < 4) return num;
-        return '••••••' + num.slice(-4);
-    };
-
-    // Fetch bank details from IFSC code
-    const fetchBankFromIFSC = async (ifsc: string) => {
-        if (ifsc.length !== 11) return;
-
-        setFetchingBank(true);
-        try {
-            const res = await fetch(`https://ifsc.razorpay.com/${ifsc}`);
-            if (res.ok) {
-                const data = await res.json();
-                setNewBank(prev => ({ ...prev, bankName: data.BANK || '' }));
-                setBankError('');
-            } else {
-                setBankError('Invalid IFSC code');
-                setNewBank(prev => ({ ...prev, bankName: '' }));
-            }
-        } catch {
-            setBankError('Could not verify IFSC');
-        } finally {
-            setFetchingBank(false);
+            setUploadingQr(false);
         }
     };
 
@@ -450,7 +368,7 @@ export default function GarageSettings() {
                     </div>
                 </motion.div>
 
-                {/* Bank Details Section */}
+                {/* Payment QR Section */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -458,184 +376,51 @@ export default function GarageSettings() {
                     className="bg-white dark:bg-[var(--app-surface)] rounded-3xl p-6 shadow-sm"
                 >
                     <h3 className="text-lg font-bold text-slate-900 dark:text-[var(--app-text)] mb-4 flex items-center gap-2">
-                        <Landmark className="w-5 h-5 text-green-600" />
-                        Bank Details
+                        <QrCode className="w-5 h-5 text-green-600" />
+                        Payment QR
                     </h3>
 
-                    {!editingBank ? (
+                    <p className="text-sm text-slate-500 dark:text-[var(--app-muted)] mb-4">
+                        Customers scan this to pay you <b className="text-slate-700 dark:text-[var(--app-text)]">directly</b>.
+                        Upload the UPI QR from any payment app (GPay, PhonePe, Paytm…). You can change it anytime.
+                    </p>
+
+                    <input
+                        ref={qrInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleQrUpload}
+                        className="hidden"
+                    />
+
+                    {qrUrl ? (
                         <div className="space-y-4">
-                            {bank.accountNumber ? (
-                                <>
-                                    <div className="bg-slate-50 dark:bg-[var(--app-bg)] rounded-2xl p-4 space-y-3">
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-slate-500 dark:text-[var(--app-muted)] text-sm">Account Holder</span>
-                                            <span className="font-semibold text-slate-900 dark:text-[var(--app-text)]">{bank.accountHolderName}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-slate-500 dark:text-[var(--app-muted)] text-sm">Account Number</span>
-                                            <div className="flex items-center gap-2">
-                                                <span className="font-semibold text-slate-900 dark:text-[var(--app-text)] font-mono">
-                                                    {showBankNumber ? bank.accountNumber : maskAccountNumber(bank.accountNumber)}
-                                                </span>
-                                                <button onClick={() => setShowBankNumber(!showBankNumber)}>
-                                                    {showBankNumber ? <EyeOff className="w-4 h-4 text-slate-400 dark:text-[var(--app-muted)]" /> : <Eye className="w-4 h-4 text-slate-400 dark:text-[var(--app-muted)]" />}
-                                                </button>
-                                            </div>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-slate-500 dark:text-[var(--app-muted)] text-sm">IFSC Code</span>
-                                            <span className="font-semibold text-slate-900 dark:text-[var(--app-text)] font-mono">{bank.ifscCode}</span>
-                                        </div>
-                                        {bank.bankName && (
-                                            <div className="flex justify-between items-center">
-                                                <span className="text-slate-500 dark:text-[var(--app-muted)] text-sm">Bank</span>
-                                                <span className="font-semibold text-slate-900 dark:text-[var(--app-text)]">{bank.bankName}</span>
-                                            </div>
-                                        )}
-                                    </div>
-                                    <button
-                                        onClick={() => { setNewBank(prev => ({ ...prev, upiVpa: bank.upiVpa })); setEditingBank(true); }}
-                                        className="w-full bg-slate-100 dark:bg-[var(--app-surface-2)] text-slate-700 dark:text-[var(--app-text)] py-4 rounded-2xl font-bold"
-                                    >
-                                        Change Bank Details
-                                    </button>
-                                </>
-                            ) : (
-                                <div className="text-center py-8">
-                                    <div className="w-16 h-16 bg-slate-100 dark:bg-[var(--app-surface-2)] rounded-2xl flex items-center justify-center mx-auto mb-4">
-                                        <CreditCard className="w-8 h-8 text-slate-400 dark:text-[var(--app-muted)]" />
-                                    </div>
-                                    <p className="text-slate-500 dark:text-[var(--app-muted)] mb-4">No bank details added yet</p>
-                                    <button
-                                        onClick={() => setEditingBank(true)}
-                                        className="bg-green-600 text-white px-6 py-3 rounded-xl font-bold"
-                                    >
-                                        Add Bank Details
-                                    </button>
-                                </div>
-                            )}
+                            <div className="bg-slate-50 dark:bg-[var(--app-bg)] rounded-2xl p-4 flex justify-center">
+                                <img src={qrUrl} alt="Your payment QR" className="w-48 h-48 object-contain rounded-xl bg-white p-2" />
+                            </div>
+                            <button
+                                onClick={() => qrInputRef.current?.click()}
+                                disabled={uploadingQr}
+                                className="w-full bg-slate-100 dark:bg-[var(--app-surface-2)] text-slate-700 dark:text-[var(--app-text)] py-4 rounded-2xl font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                                {uploadingQr ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
+                                Replace QR
+                            </button>
                         </div>
                     ) : (
-                        <div className="space-y-4">
-                            <div className="bg-amber-50 dark:bg-amber-950/40 p-4 rounded-xl mb-4">
-                                <p className="text-amber-800 dark:text-amber-200 text-sm">
-                                    ⚠️ Changing bank details will affect where your earnings are deposited.
-                                </p>
+                        <div className="text-center py-8">
+                            <div className="w-16 h-16 bg-slate-100 dark:bg-[var(--app-surface-2)] rounded-2xl flex items-center justify-center mx-auto mb-4">
+                                <QrCode className="w-8 h-8 text-slate-400 dark:text-[var(--app-muted)]" />
                             </div>
-
-                            <div>
-                                <label className="block text-sm font-semibold text-slate-700 dark:text-[var(--app-text)] mb-2">Account Holder Name *</label>
-                                <input
-                                    type="text"
-                                    value={newBank.accountHolderName}
-                                    onChange={(e) => setNewBank({ ...newBank, accountHolderName: e.target.value })}
-                                    placeholder="As per bank records"
-                                    className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-[var(--app-surface-2)] border-2 border-slate-300 dark:border-[var(--app-border)] focus:ring-2 focus:ring-blue-500 focus:outline-none focus:bg-white dark:focus:bg-[var(--app-surface)]"
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-semibold text-slate-700 dark:text-[var(--app-text)] mb-2">Account Number *</label>
-                                <input
-                                    type="text"
-                                    value={newBank.accountNumber}
-                                    onChange={(e) => setNewBank({ ...newBank, accountNumber: e.target.value })}
-                                    placeholder="Enter account number"
-                                    className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-[var(--app-surface-2)] border-2 border-slate-300 dark:border-[var(--app-border)] focus:ring-2 focus:ring-blue-500 focus:outline-none focus:bg-white dark:focus:bg-[var(--app-surface)]"
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-semibold text-slate-700 dark:text-[var(--app-text)] mb-2">Confirm Account Number *</label>
-                                <input
-                                    type="text"
-                                    value={newBank.confirmAccountNumber}
-                                    onChange={(e) => setNewBank({ ...newBank, confirmAccountNumber: e.target.value })}
-                                    placeholder="Re-enter account number"
-                                    className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-[var(--app-surface-2)] border-2 border-slate-300 dark:border-[var(--app-border)] focus:ring-2 focus:ring-blue-500 focus:outline-none focus:bg-white dark:focus:bg-[var(--app-surface)]"
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-semibold text-slate-700 dark:text-[var(--app-text)] mb-2">IFSC Code *</label>
-                                <input
-                                    type="text"
-                                    value={newBank.ifscCode}
-                                    onChange={(e) => {
-                                        const ifsc = e.target.value.toUpperCase();
-                                        setNewBank({ ...newBank, ifscCode: ifsc });
-                                        if (ifsc.length === 11) {
-                                            fetchBankFromIFSC(ifsc);
-                                        }
-                                    }}
-                                    placeholder="SBIN0001234"
-                                    maxLength={11}
-                                    className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-[var(--app-surface-2)] border-2 border-slate-300 dark:border-[var(--app-border)] focus:ring-2 focus:ring-blue-500 focus:outline-none focus:bg-white dark:focus:bg-[var(--app-surface)] uppercase"
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-semibold text-slate-700 dark:text-[var(--app-text)] mb-2">
-                                    Bank Name {fetchingBank && <span className="text-blue-500 text-xs ml-2">Loading...</span>}
-                                </label>
-                                <input
-                                    type="text"
-                                    value={newBank.bankName}
-                                    readOnly
-                                    placeholder="Auto-filled from IFSC"
-                                    className="w-full px-4 py-3 rounded-xl bg-slate-200 dark:bg-[var(--app-surface-2)] border-2 border-slate-300 dark:border-[var(--app-border)] text-slate-600 dark:text-[var(--app-muted)] cursor-not-allowed"
-                                />
-                            </div>
-
-                            {/* UPI ID (optional) */}
-                            <div>
-                                <label className="block text-sm font-semibold text-slate-700 dark:text-[var(--app-text)] mb-2">UPI ID <span className="font-normal text-slate-400 dark:text-[var(--app-muted)]">(optional)</span></label>
-                                <input
-                                    type="text"
-                                    value={newBank.upiVpa}
-                                    onChange={(e) => setNewBank({ ...newBank, upiVpa: e.target.value.trim() })}
-                                    placeholder="yourname@bank"
-                                    autoCapitalize="none"
-                                    className="w-full px-4 py-3 rounded-xl border-2 border-slate-300 dark:border-[var(--app-border)] focus:ring-2 focus:ring-blue-500 focus:bg-white dark:focus:bg-[var(--app-surface)]"
-                                />
-                                <p className="text-xs text-slate-400 dark:text-[var(--app-muted)] mt-1">Used for direct collection during peak hours.</p>
-                            </div>
-
-                            {/* Bank Error Message */}
-                            {bankError && (
-                                <div className="bg-red-50 dark:bg-red-950/40 text-red-600 p-3 rounded-xl text-sm flex items-center gap-2">
-                                    <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                                    {bankError}
-                                </div>
-                            )}
-
-                            <div className="flex gap-3">
-                                <button
-                                    onClick={() => {
-                                        setEditingBank(false);
-                                        setNewBank({
-                                            accountNumber: '',
-                                            confirmAccountNumber: '',
-                                            ifscCode: '',
-                                            accountHolderName: '',
-                                            bankName: '',
-                                            upiVpa: '',
-                                        });
-                                        setBankError('');
-                                    }}
-                                    className="flex-1 bg-slate-100 dark:bg-[var(--app-surface-2)] text-slate-700 dark:text-[var(--app-text)] py-4 rounded-2xl font-bold"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleSaveBank}
-                                    disabled={saving}
-                                    className="flex-1 bg-green-600 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 disabled:opacity-50"
-                                >
-                                    {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-                                    Save
-                                </button>
-                            </div>
+                            <p className="text-slate-500 dark:text-[var(--app-muted)] mb-4">No payment QR added yet</p>
+                            <button
+                                onClick={() => qrInputRef.current?.click()}
+                                disabled={uploadingQr}
+                                className="bg-green-600 text-white px-6 py-3 rounded-xl font-bold inline-flex items-center gap-2 disabled:opacity-50"
+                            >
+                                {uploadingQr ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
+                                Upload QR
+                            </button>
                         </div>
                     )}
                 </motion.div>

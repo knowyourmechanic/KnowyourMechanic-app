@@ -526,53 +526,45 @@ export async function saveGarageBusinessInfo(ownerProfileId: string, info: Garag
     return (data as { id: string }).id;
 }
 
-export async function saveGarageBankDetails(
-    garageId: string,
-    bank: { accountNumber: string; ifscCode: string; accountHolderName: string; bankName: string; upiVpa?: string }
-): Promise<void> {
-    // Payout/bank details live in a private table (garage_payout_details) that
-    // only the owning garage + admins can read — never on the publicly-readable
-    // garages row. upi_vpa is the garage's own UPI ID for post-cap direct
-    // collection (customer pays it directly when the daily float cap is hit).
-    const row: Record<string, unknown> = {
-        garage_id: garageId,
-        bank_account_number: bank.accountNumber.replace(/\D/g, ''),
-        bank_ifsc_code: bank.ifscCode.toUpperCase(),
-        bank_account_holder_name: bank.accountHolderName.trim(),
-        bank_name: bank.bankName.trim(),
-        updated_at: new Date().toISOString(),
-    };
-    if (bank.upiVpa !== undefined) row.upi_vpa = bank.upiVpa.trim() || null;
-    const { error } = await supabase
+// ---- Garage payment QR --------------------------------------------------
+// The garage's own static UPI QR that the customer scans to pay them directly
+// (service amount + ₹3.90 platform fee). KYM never touches this money; the fee
+// is accrued as owed by the garage and settled later. The image lives in the
+// public-read 'garage-qr' storage bucket under '<garage_id>/qr'; only the owning
+// garage can write it (storage RLS). Its path is recorded on garage_payout_details.
+const GARAGE_QR_BUCKET = 'garage-qr';
+
+// Uploads (or replaces) the garage's payment-QR image and records its path.
+// Returns a cache-busted public URL so the caller can show the new image at once.
+export async function saveGarageQr(garageId: string, file: File): Promise<string> {
+    const path = `${garageId}/qr`;
+    const { error: upErr } = await supabase.storage
+        .from(GARAGE_QR_BUCKET)
+        .upload(path, file, { upsert: true, contentType: file.type || 'image/png' });
+    if (upErr) throw new Error(upErr.message);
+
+    const { error: dbErr } = await supabase
         .from('garage_payout_details')
-        .upsert(row, { onConflict: 'garage_id' });
-    if (error) throw new Error(error.message);
+        .upsert(
+            { garage_id: garageId, qr_image_path: path, updated_at: new Date().toISOString() },
+            { onConflict: 'garage_id' },
+        );
+    if (dbErr) throw new Error(dbErr.message);
+
+    const { data } = supabase.storage.from(GARAGE_QR_BUCKET).getPublicUrl(path);
+    return `${data.publicUrl}?t=${Date.now()}`;
 }
 
-export interface GaragePayout {
-    accountNumber: string;
-    ifscCode: string;
-    accountHolderName: string;
-    bankName: string;
-    upiVpa: string;
-}
-
-// Reads the owning garage's saved payout/bank details from the private table
-// (RLS restricts this to the owner + admins). Returns null if none saved.
-export async function getMyGaragePayout(garageId: string): Promise<GaragePayout | null> {
+// The garage's saved payment-QR public URL, or null if none uploaded yet.
+export async function getMyGarageQr(garageId: string): Promise<string | null> {
     const { data, error } = await supabase
         .from('garage_payout_details')
-        .select('bank_account_number,bank_ifsc_code,bank_account_holder_name,bank_name,upi_vpa')
+        .select('qr_image_path')
         .eq('garage_id', garageId)
         .maybeSingle();
-    if (error || !data) return null;
-    return {
-        accountNumber: data.bank_account_number || '',
-        ifscCode: data.bank_ifsc_code || '',
-        accountHolderName: data.bank_account_holder_name || '',
-        bankName: data.bank_name || '',
-        upiVpa: data.upi_vpa || '',
-    };
+    if (error || !data?.qr_image_path) return null;
+    const { data: pub } = supabase.storage.from(GARAGE_QR_BUCKET).getPublicUrl(data.qr_image_path);
+    return pub.publicUrl;
 }
 
 export async function completeGarageOnboarding(garageId: string): Promise<void> {

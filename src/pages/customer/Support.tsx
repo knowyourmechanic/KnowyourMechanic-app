@@ -15,7 +15,7 @@ const faqs = [
     },
     {
         question: 'What does "Verified" vs "Cash" payment mean?',
-        answer: '"Verified" payments are made through our secure payment system (Razorpay). "Cash" payments are made directly to the garage. Verified payments offer better protection.'
+        answer: '"Verified" means you paid by UPI and confirmed the service with an OTP, so it is recorded as a trusted transaction. "Cash" payments are unverified and marked "Not Trusted". Verified services offer better protection.'
     },
     {
         question: 'How do I leave a review?',

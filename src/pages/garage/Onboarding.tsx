@@ -2,17 +2,17 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
-    Building2, Phone, Mail, CreditCard,
+    Building2, Phone, Mail, QrCode,
     CheckCircle, ArrowRight, ArrowLeft, Loader2, AlertTriangle,
-    Landmark, User, Camera, Check, X
+    Upload, Camera, Check, X
 } from 'lucide-react';
 import TimeRangePicker from '../../components/TimeRangePicker';
 import WorkingDaysPicker from '../../components/WorkingDaysPicker';
 import LocationPicker from '../../components/LocationPicker';
 import { useAuth } from '../../contexts/AuthContext';
-import { getMyGarage, saveGarageBusinessInfo, saveGarageBankDetails, completeGarageOnboarding } from '../../lib/data';
+import { getMyGarage, saveGarageBusinessInfo, saveGarageQr, completeGarageOnboarding } from '../../lib/data';
 
-type Step = 'business' | 'bank' | 'success';
+type Step = 'business' | 'qr' | 'success';
 
 interface BusinessInfo {
     name: string;
@@ -27,15 +27,6 @@ interface BusinessInfo {
     legalBusinessName: string;
     referralCode: string;
     photoBase64: string;
-}
-
-interface BankInfo {
-    accountNumber: string;
-    confirmAccountNumber: string;
-    ifscCode: string;
-    accountHolderName: string;
-    bankName: string;
-    upiVpa: string;
 }
 
 interface FieldErrors {
@@ -71,14 +62,9 @@ export default function GarageOnboardingWizard() {
         photoBase64: '',
     });
 
-    const [bank, setBank] = useState<BankInfo>({
-        accountNumber: '',
-        confirmAccountNumber: '',
-        ifscCode: '',
-        accountHolderName: '',
-        bankName: '',
-        upiVpa: '',
-    });
+    // The garage's static payment QR (image the customer scans to pay directly).
+    const [qrFile, setQrFile] = useState<File | null>(null);
+    const [qrPreview, setQrPreview] = useState('');
 
     const [referralStatus, setReferralStatus] = useState<ReferralStatus>({
         checking: false, valid: null, employeeName: '',
@@ -136,17 +122,9 @@ export default function GarageOnboardingWizard() {
         return Object.keys(errors).length === 0;
     };
 
-    const validateBankStep = (): boolean => {
+    const validateQrStep = (): boolean => {
         const errors: FieldErrors = {};
-
-        const acctDigits = bank.accountNumber.replace(/\D/g, '');
-        if (acctDigits.length < 9 || acctDigits.length > 18) errors.accountNumber = 'Account number must be 9-18 digits';
-        if (bank.accountNumber !== bank.confirmAccountNumber) errors.confirmAccountNumber = 'Account numbers do not match';
-        if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(bank.ifscCode.toUpperCase())) errors.ifscCode = 'Invalid IFSC (e.g. SBIN0001234)';
-        if (!/^[a-zA-Z\s]+$/.test(bank.accountHolderName) || bank.accountHolderName.trim().length < 2) {
-            errors.accountHolderName = 'Enter a valid name (letters only)';
-        }
-
+        if (!qrFile) errors.qr = 'Please upload your payment QR (or skip and add it later)';
         setFieldErrors(errors);
         return Object.keys(errors).length === 0;
     };
@@ -178,6 +156,18 @@ export default function GarageOnboardingWizard() {
         reader.readAsDataURL(file);
     };
 
+    // ---- Payment QR handler ----
+    const handleQrSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (!file.type.startsWith('image/')) { setError('Please select an image file'); return; }
+        if (file.size > 5 * 1024 * 1024) { setError('QR image must be under 5MB'); return; }
+        setError('');
+        setQrFile(file);
+        setQrPreview(URL.createObjectURL(file));
+        if (fieldErrors.qr) setFieldErrors(prev => ({ ...prev, qr: '' }));
+    };
+
     // ---- Submit handlers ----
     const handleBusinessSubmit = async () => {
         if (!validateBusinessStep()) return;
@@ -201,7 +191,7 @@ export default function GarageOnboardingWizard() {
             });
             setGarageId(id);
             setFieldErrors({});
-            setStep('bank');
+            setStep('qr');
         } catch (e: any) {
             setError(e.message || 'Failed to save');
         } finally {
@@ -209,21 +199,15 @@ export default function GarageOnboardingWizard() {
         }
     };
 
-    const handleBankSubmit = async () => {
-        if (!validateBankStep()) return;
+    const handleQrSubmit = async () => {
+        if (!validateQrStep()) return;
 
         setLoading(true);
         setError('');
 
         try {
-            if (garageId) {
-                await saveGarageBankDetails(garageId, {
-                    accountNumber: bank.accountNumber,
-                    ifscCode: bank.ifscCode,
-                    accountHolderName: bank.accountHolderName,
-                    bankName: bank.bankName,
-                    upiVpa: bank.upiVpa,
-                });
+            if (garageId && qrFile) {
+                await saveGarageQr(garageId, qrFile);
                 await completeGarageOnboarding(garageId);
             }
             localStorage.setItem('garageOnboarded', 'true');
@@ -237,7 +221,7 @@ export default function GarageOnboardingWizard() {
         }
     };
 
-    const handleSkipBank = async () => {
+    const handleSkipQr = async () => {
         setLoading(true);
         try {
             if (garageId) await completeGarageOnboarding(garageId);
@@ -272,16 +256,16 @@ export default function GarageOnboardingWizard() {
 
     const stepIndicator = (
         <div className="flex items-center justify-center gap-2 mb-8">
-            {['business', 'bank', 'success'].map((s, i) => (
+            {['business', 'qr', 'success'].map((s, i) => (
                 <div key={s} className="flex items-center">
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold
-                        ${step === s || ['business', 'bank', 'success'].indexOf(step) > i
+                        ${step === s || ['business', 'qr', 'success'].indexOf(step) > i
                             ? 'bg-blue-600 text-white'
                             : 'bg-slate-200 dark:bg-[var(--app-surface-2)] text-slate-500 dark:text-[var(--app-muted)]'}`}
                     >
                         {i + 1}
                     </div>
-                    {i < 2 && <div className={`w-8 h-0.5 ${['business', 'bank', 'success'].indexOf(step) > i ? 'bg-blue-600' : 'bg-slate-200 dark:bg-[var(--app-surface-2)]'}`} />}
+                    {i < 2 && <div className={`w-8 h-0.5 ${['business', 'qr', 'success'].indexOf(step) > i ? 'bg-blue-600' : 'bg-slate-200 dark:bg-[var(--app-surface-2)]'}`} />}
                 </div>
             ))}
         </div>
@@ -294,12 +278,12 @@ export default function GarageOnboardingWizard() {
                 <div className="text-center mb-6">
                     <h1 className="text-2xl font-black text-slate-900 dark:text-[var(--app-text)] mb-2">
                         {step === 'business' && 'Business Details'}
-                        {step === 'bank' && 'Bank Account'}
+                        {step === 'qr' && 'Payment QR'}
                         {step === 'success' && 'All Set!'}
                     </h1>
                     <p className="text-slate-500 dark:text-[var(--app-muted)]">
                         {step === 'business' && 'Tell us about your garage'}
-                        {step === 'bank' && 'For receiving payments'}
+                        {step === 'qr' && 'Customers pay you directly on this QR'}
                         {step === 'success' && 'Your garage is ready'}
                     </p>
                 </div>
@@ -516,131 +500,51 @@ export default function GarageOnboardingWizard() {
                         </motion.div>
                     )}
 
-                    {/* Step: Bank Details */}
-                    {step === 'bank' && (
+                    {/* Step: Payment QR */}
+                    {step === 'qr' && (
                         <motion.div
-                            key="bank"
+                            key="qr"
                             initial={{ opacity: 0, x: 20 }}
                             animate={{ opacity: 1, x: 0 }}
                             exit={{ opacity: 0, x: -20 }}
                             className="space-y-4"
                         >
-                            <div className="bg-blue-50 dark:bg-blue-950/40 p-4 rounded-xl mb-4">
+                            <div className="bg-blue-50 dark:bg-blue-950/40 p-4 rounded-xl mb-2">
                                 <p className="text-blue-800 dark:text-blue-200 text-sm">
-                                    💰 Your earnings will be transferred to this account automatically.
+                                    📷 Upload your UPI payment QR (from GPay, PhonePe, Paytm, etc.).
+                                    Customers scan it to pay you <b>directly</b> — the money goes straight
+                                    to you. You only settle a small platform fee to us at day's end.
                                 </p>
                             </div>
 
-                            {/* Account Holder */}
-                            <div>
-                                <label className="block text-sm font-semibold text-slate-700 dark:text-[var(--app-text)] mb-2">Account Holder Name *</label>
-                                <div className="relative">
-                                    <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 dark:text-[var(--app-muted)]" />
-                                    <input
-                                        type="text"
-                                        value={bank.accountHolderName}
-                                        onChange={(e) => {
-                                            const val = e.target.value.replace(/[^a-zA-Z\s]/g, '');
-                                            setBank({ ...bank, accountHolderName: val });
-                                            if (fieldErrors.accountHolderName) setFieldErrors(prev => ({ ...prev, accountHolderName: '' }));
-                                        }}
-                                        placeholder="As per bank records"
-                                        className={`w-full pl-12 pr-4 py-3 rounded-xl border ${fieldErrors.accountHolderName ? 'border-red-300 bg-red-50/50 dark:bg-red-950/50' : 'border-slate-200 dark:border-[var(--app-border)]'} focus:ring-2 focus:ring-blue-500`}
-                                    />
-                                </div>
-                                {renderFieldError('accountHolderName')}
-                            </div>
-
-                            {/* Account Number */}
-                            <div>
-                                <label className="block text-sm font-semibold text-slate-700 dark:text-[var(--app-text)] mb-2">Account Number *</label>
-                                <div className="relative">
-                                    <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 dark:text-[var(--app-muted)]" />
-                                    <input
-                                        type="text"
-                                        value={bank.accountNumber}
-                                        onChange={(e) => {
-                                            const digits = e.target.value.replace(/\D/g, '').slice(0, 18);
-                                            setBank({ ...bank, accountNumber: digits });
-                                            if (fieldErrors.accountNumber) setFieldErrors(prev => ({ ...prev, accountNumber: '' }));
-                                        }}
-                                        placeholder="Enter account number"
-                                        inputMode="numeric"
-                                        className={`w-full pl-12 pr-4 py-3 rounded-xl border ${fieldErrors.accountNumber ? 'border-red-300 bg-red-50/50 dark:bg-red-950/50' : 'border-slate-200 dark:border-[var(--app-border)]'} focus:ring-2 focus:ring-blue-500`}
-                                    />
-                                </div>
-                                {renderFieldError('accountNumber')}
-                            </div>
-
-                            {/* Confirm Account Number */}
-                            <div>
-                                <label className="block text-sm font-semibold text-slate-700 dark:text-[var(--app-text)] mb-2">Confirm Account Number *</label>
-                                <div className="relative">
-                                    <input
-                                        type="text"
-                                        value={bank.confirmAccountNumber}
-                                        onChange={(e) => {
-                                            const digits = e.target.value.replace(/\D/g, '').slice(0, 18);
-                                            setBank({ ...bank, confirmAccountNumber: digits });
-                                            if (fieldErrors.confirmAccountNumber) setFieldErrors(prev => ({ ...prev, confirmAccountNumber: '' }));
-                                        }}
-                                        placeholder="Re-enter account number"
-                                        inputMode="numeric"
-                                        className={`w-full px-4 py-3 rounded-xl border ${fieldErrors.confirmAccountNumber ? 'border-red-300 bg-red-50/50 dark:bg-red-950/50' : 'border-slate-200 dark:border-[var(--app-border)]'} focus:ring-2 focus:ring-blue-500`}
-                                    />
-                                    {bank.confirmAccountNumber && bank.accountNumber === bank.confirmAccountNumber && (
-                                        <Check className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-green-500" />
+                            {/* QR uploader */}
+                            <label className="cursor-pointer block">
+                                <div className={`rounded-2xl border-2 border-dashed flex flex-col items-center justify-center overflow-hidden transition-colors p-6 min-h-[220px]
+                                    ${qrPreview
+                                        ? 'border-green-300 bg-green-50 dark:bg-green-950/30'
+                                        : `${fieldErrors.qr ? 'border-red-300 bg-red-50/50 dark:bg-red-950/40' : 'border-slate-300 dark:border-[var(--app-border)] bg-slate-50 dark:bg-[var(--app-surface-2)]'} hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40`}`}>
+                                    {qrPreview ? (
+                                        <>
+                                            <img src={qrPreview} alt="Your payment QR" className="w-48 h-48 object-contain rounded-xl bg-white p-2" />
+                                            <span className="text-xs font-semibold text-green-700 dark:text-green-300 mt-3 flex items-center gap-1">
+                                                <Check className="w-4 h-4" /> QR selected — tap to change
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div className="w-16 h-16 rounded-2xl bg-white dark:bg-[var(--app-surface)] flex items-center justify-center mb-3">
+                                                <QrCode className="w-8 h-8 text-blue-600" />
+                                            </div>
+                                            <span className="font-bold text-slate-700 dark:text-[var(--app-text)] flex items-center gap-2">
+                                                <Upload className="w-4 h-4" /> Upload payment QR
+                                            </span>
+                                            <span className="text-xs text-slate-400 dark:text-[var(--app-muted)] mt-1">PNG or JPG, up to 5MB</span>
+                                        </>
                                     )}
                                 </div>
-                                {renderFieldError('confirmAccountNumber')}
-                            </div>
-
-                            {/* IFSC */}
-                            <div>
-                                <label className="block text-sm font-semibold text-slate-700 dark:text-[var(--app-text)] mb-2">IFSC Code *</label>
-                                <div className="relative">
-                                    <Landmark className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 dark:text-[var(--app-muted)]" />
-                                    <input
-                                        type="text"
-                                        value={bank.ifscCode}
-                                        onChange={(e) => {
-                                            const val = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 11);
-                                            setBank({ ...bank, ifscCode: val });
-                                            if (fieldErrors.ifscCode) setFieldErrors(prev => ({ ...prev, ifscCode: '' }));
-                                        }}
-                                        placeholder="SBIN0001234"
-                                        maxLength={11}
-                                        className={`w-full pl-12 pr-4 py-3 rounded-xl border ${fieldErrors.ifscCode ? 'border-red-300 bg-red-50/50 dark:bg-red-950/50' : 'border-slate-200 dark:border-[var(--app-border)]'} focus:ring-2 focus:ring-blue-500 uppercase font-mono`}
-                                    />
-                                </div>
-                                {renderFieldError('ifscCode')}
-                            </div>
-
-                            {/* Bank Name */}
-                            <div>
-                                <label className="block text-sm font-semibold text-slate-700 dark:text-[var(--app-text)] mb-2">Bank Name</label>
-                                <input
-                                    type="text"
-                                    value={bank.bankName}
-                                    onChange={(e) => setBank({ ...bank, bankName: e.target.value })}
-                                    placeholder="State Bank of India"
-                                    className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-[var(--app-border)] focus:ring-2 focus:ring-blue-500"
-                                />
-                            </div>
-
-                            {/* UPI ID (optional) — used for direct collection during peak hours */}
-                            <div>
-                                <label className="block text-sm font-semibold text-slate-700 dark:text-[var(--app-text)] mb-2">UPI ID <span className="font-normal text-slate-400 dark:text-[var(--app-muted)]">(optional)</span></label>
-                                <input
-                                    type="text"
-                                    value={bank.upiVpa}
-                                    onChange={(e) => setBank({ ...bank, upiVpa: e.target.value.trim() })}
-                                    placeholder="yourname@bank"
-                                    autoCapitalize="none"
-                                    className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-[var(--app-border)] focus:ring-2 focus:ring-blue-500"
-                                />
-                                <p className="text-xs text-slate-400 dark:text-[var(--app-muted)] mt-1">Lets customers pay you directly during peak hours. You can add it later.</p>
-                            </div>
+                                <input type="file" accept="image/*" onChange={handleQrSelect} className="hidden" />
+                            </label>
+                            {renderFieldError('qr')}
 
                             <div className="flex gap-3 mt-6">
                                 <button
@@ -650,7 +554,7 @@ export default function GarageOnboardingWizard() {
                                     <ArrowLeft className="w-5 h-5" /> Back
                                 </button>
                                 <button
-                                    onClick={handleBankSubmit}
+                                    onClick={handleQrSubmit}
                                     disabled={loading}
                                     className="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 disabled:opacity-50"
                                 >
@@ -661,10 +565,10 @@ export default function GarageOnboardingWizard() {
                             </div>
 
                             <button
-                                onClick={handleSkipBank}
+                                onClick={handleSkipQr}
                                 className="w-full text-slate-400 dark:text-[var(--app-muted)] text-sm font-semibold mt-2"
                             >
-                                Skip for now (add later)
+                                Skip for now (add later in Settings)
                             </button>
                         </motion.div>
                     )}
