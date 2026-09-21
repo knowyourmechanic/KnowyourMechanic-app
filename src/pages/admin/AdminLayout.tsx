@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, UserCog, Activity, Flag, LogOut, Menu, X, AlertOctagon } from 'lucide-react';
+import { LayoutDashboard, Users, UserCog, Activity, Flag, Wallet, LogOut, Menu, X, AlertOctagon } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../contexts/AuthContext';
 import RoleSwitcher from '../../components/RoleSwitcher';
@@ -28,6 +28,7 @@ export default function AdminLayout() {
         { path: '/admin/employees', label: 'Employees', icon: Users },
         { path: '/admin/performance', label: 'Performance', icon: UserCog },
         { path: '/admin/reports', label: 'Reports', icon: Flag },
+        { path: '/admin/fees', label: 'Platform Fees', icon: Wallet },
         { path: '/admin/advanced', label: 'Advanced Metrics', icon: Activity },
     ];
 

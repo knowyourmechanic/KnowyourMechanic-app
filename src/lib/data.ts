@@ -742,6 +742,70 @@ export async function createFeeSettlementOrder(garageId: string): Promise<FeeSet
     return data as FeeSettlementOrder;
 }
 
+// ---- Admin: platform-fee overview (what each garage owes / has settled) ----
+export interface AdminFeeRow {
+    garageId: string;
+    name: string;
+    outstanding: number;      // owed to KYM right now (ledger balance)
+    accrued: number;          // lifetime fees accrued
+    settled: number;          // lifetime settled via Razorpay
+    lastSettledAt: string | null;
+}
+export interface AdminFeeOverview {
+    totalOutstanding: number;
+    totalAccrued: number;
+    totalSettled: number;
+    garagesOwing: number;
+    rows: AdminFeeRow[];
+}
+
+// Per-garage fee ledger + settlement rollup for the admin console. Reads are
+// permitted for admins by RLS; aggregation is done here (fine at current scale).
+export async function getAdminFeeOverview(): Promise<AdminFeeOverview> {
+    const [garagesRes, ledgerRes, settleRes] = await Promise.all([
+        supabase.from('garages').select('id,name'),
+        supabase.from('garage_ledger').select('garage_id,entry_type,amount'),
+        supabase.from('fee_settlements').select('garage_id,amount,paid_at').eq('status', 'paid'),
+    ]);
+    const names = new Map<string, string>();
+    for (const g of garagesRes.data ?? []) names.set((g as any).id, (g as any).name);
+
+    const per = new Map<string, AdminFeeRow>();
+    const ensure = (gid: string): AdminFeeRow => {
+        let r = per.get(gid);
+        if (!r) {
+            r = { garageId: gid, name: names.get(gid) || '—', outstanding: 0, accrued: 0, settled: 0, lastSettledAt: null };
+            per.set(gid, r);
+        }
+        return r;
+    };
+
+    for (const e of ledgerRes.data ?? []) {
+        const r = ensure((e as any).garage_id);
+        const amt = Number((e as any).amount || 0);
+        r.outstanding += amt;
+        if ((e as any).entry_type === 'fee_accrued') r.accrued += amt;
+    }
+    for (const s of settleRes.data ?? []) {
+        const r = ensure((s as any).garage_id);
+        r.settled += Number((s as any).amount || 0);
+        const paid = (s as any).paid_at as string | null;
+        if (paid && (!r.lastSettledAt || paid > r.lastSettledAt)) r.lastSettledAt = paid;
+    }
+
+    const rows = Array.from(per.values())
+        .filter((r) => r.accrued > 0 || r.settled > 0 || Math.abs(r.outstanding) > 0.001)
+        .sort((a, b) => b.outstanding - a.outstanding);
+
+    return {
+        totalOutstanding: rows.reduce((s, r) => s + Math.max(0, r.outstanding), 0),
+        totalAccrued: rows.reduce((s, r) => s + r.accrued, 0),
+        totalSettled: rows.reduce((s, r) => s + r.settled, 0),
+        garagesOwing: rows.filter((r) => r.outstanding > 0.001).length,
+        rows,
+    };
+}
+
 // Creates a service record + taxonomy join rows via the SECURITY DEFINER RPC.
 // (OTP generation/delivery happens later via the service-record-create Edge
 // Function once it is deployed.)

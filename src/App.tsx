@@ -17,6 +17,7 @@ import AdminReports from './pages/admin/Reports';
 import AdminLayout from './pages/admin/AdminLayout';
 import AdminPerformance from './pages/admin/Performance';
 import AdminAdvanced from './pages/admin/Advanced';
+import AdminFees from './pages/admin/Fees';
 import EmployeeDashboard from './pages/employee/Dashboard';
 import SupportLayout from './pages/support/SupportLayout';
 import SupportChats from './pages/support/SupportChats';
@@ -112,6 +113,7 @@ export default function App() {
             <Route path="employees/:id" element={<AdminEmployeeDetail />} />
             <Route path="performance" element={<AdminPerformance />} />
             <Route path="reports" element={<AdminReports />} />
+            <Route path="fees" element={<AdminFees />} />
             <Route path="advanced" element={<AdminAdvanced />} />
           </Route>
 
