@@ -16,11 +16,17 @@ interface ServiceRecord {
         };
     };
     description: string;
+    vehicleNumber: string | null;
     amount: number;
-    paymentMethod: string;
-    isReliable: boolean;
+    platformFee: number;
+    invoiceNumber: string | null;
     createdAt: string;
 }
+
+// Garage-entered text goes into a standalone HTML file — escape it.
+const escapeHtml = (v: unknown) =>
+    String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+const rupees = (n: number) => `&#8377;${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 interface Review {
     _id?: string;
@@ -66,10 +72,11 @@ export default function CustomerActivity() {
             const mapped: ServiceRecord[] = rows.map((r) => ({
                 _id: r.id,
                 garageId: { _id: r.garage_id, name: r.garage_name },
-                description: r.description,
+                description: (r.service_notes && r.service_notes.trim()) || r.description,
+                vehicleNumber: r.vehicle_number,
                 amount: Number(r.amount),
-                paymentMethod: r.payment_method || 'cash',
-                isReliable: r.is_reliable,
+                platformFee: Number(r.platform_fee || 0),
+                invoiceNumber: r.invoice_number,
                 createdAt: r.created_at,
             }));
             setServices(mapped);
@@ -154,25 +161,32 @@ export default function CustomerActivity() {
     // Client-side invoice: builds a printable HTML file from the record we already have.
     // (A richer PDF invoice can replace this later.)
     const downloadInvoice = (service: ServiceRecord) => {
-        const html = `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${service._id}</title>
+        const invoiceId = service.invoiceNumber || service._id;
+        const total = service.amount + service.platformFee;
+        const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Invoice ${escapeHtml(invoiceId)}</title>
 <style>body{font-family:system-ui,-apple-system,sans-serif;color:#0f172a;max-width:600px;margin:40px auto;padding:0 24px}
 h1{font-size:22px;margin:0 0 4px}.muted{color:#64748b;font-size:13px}
-.row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #e2e8f0}
+.row{display:flex;justify-content:space-between;gap:16px;padding:10px 0;border-bottom:1px solid #e2e8f0}
+.row span:last-child{text-align:right}
 .total{font-weight:700;font-size:18px;border-bottom:none;padding-top:16px}
 .badge{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#16a34a}</style></head>
-<body><h1>KnowYourMechanic</h1><p class="muted">Service Invoice</p><div style="margin:24px 0">
-<div class="row"><span class="muted">Garage</span><span>${service.garageId?.name || 'Garage'}</span></div>
-<div class="row"><span class="muted">Service</span><span>${service.description || '-'}</span></div>
-<div class="row"><span class="muted">Date</span><span>${formatDate(service.createdAt)}</span></div>
-<div class="row"><span class="muted">Invoice ID</span><span>${service._id}</span></div>
-<div class="row total"><span>Total</span><span>&#8377;${service.amount}</span></div>
+<body><h1>KnowYourMechanic</h1><p class="muted">Service invoice · <span class="badge">OTP-verified</span></p><div style="margin:24px 0">
+<div class="row"><span class="muted">Invoice no.</span><span>${escapeHtml(invoiceId)}</span></div>
+<div class="row"><span class="muted">Date</span><span>${escapeHtml(formatDate(service.createdAt))}</span></div>
+<div class="row"><span class="muted">Garage</span><span>${escapeHtml(service.garageId?.name || 'Garage')}</span></div>
+${service.vehicleNumber ? `<div class="row"><span class="muted">Vehicle</span><span>${escapeHtml(service.vehicleNumber)}</span></div>` : ''}
+<div class="row"><span class="muted">Service</span><span>${escapeHtml(service.description || '-')}</span></div>
+<div class="row"><span class="muted">Service amount</span><span>${rupees(service.amount)}</span></div>
+<div class="row"><span class="muted">Platform fee</span><span>${rupees(service.platformFee)}</span></div>
+<div class="row total"><span>Total paid</span><span>${rupees(total)}</span></div>
 </div><p class="muted">Thank you for using KnowYourMechanic.</p></body></html>`;
         const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
         const a = document.createElement('a');
         a.href = url;
-        a.download = `Invoice-${service._id}.html`;
+        a.download = `Invoice-${invoiceId}.html`;
         a.click();
-        URL.revokeObjectURL(url);
+        // Revoking synchronously can cancel the download in some WebViews.
+        setTimeout(() => URL.revokeObjectURL(url), 10_000);
     };
 
     const mainContent = (

@@ -60,8 +60,8 @@ export default function FeeSettlementCard({ garageId, garageName, reloadSignal }
                 orderId: order.orderId,
                 amount: order.amount!,
                 currency: order.currency || 'INR',
-                name: garageName || 'KnowYourMechanic',
-                description: 'Platform fee settlement',
+                name: 'KnowYourMechanic',
+                description: garageName ? `Platform fees · ${garageName}` : 'Platform fee settlement',
             });
 
             // Payment succeeded in the sheet — the webhook now clears the ledger.

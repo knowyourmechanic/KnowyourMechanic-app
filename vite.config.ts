@@ -15,12 +15,30 @@ function stripAssetCrossorigin(): Plugin {
       return html
         .replace(/<script type="module" crossorigin/g, '<script type="module"')
         .replace(/<link rel="stylesheet" crossorigin/g, '<link rel="stylesheet"')
+        .replace(/<link rel="modulepreload" crossorigin/g, '<link rel="modulepreload"')
     },
   }
 }
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), stripAssetCrossorigin()],
+  build: {
+    // Same iOS constraint for lazy route chunks: Vite's runtime preloader tags
+    // the <link>s it injects with crossOrigin, which WKWebView rejects. Let
+    // import() fetch chunks itself, and keep CSS in the one (stripped) file.
+    modulePreload: false,
+    cssCodeSplit: false,
+    rollupOptions: {
+      output: {
+        // Long-lived vendor chunks: app releases don't bust these caches.
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router-dom'],
+          supabase: ['@supabase/supabase-js'],
+          motion: ['framer-motion'],
+        },
+      },
+    },
+  },
   server: {
     port: 5183,
     host: true

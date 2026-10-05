@@ -10,6 +10,7 @@ import {
     getGaragePublic, getGarageReviews, getGarageOfferedServices,
     getMyReview, submitReview, deleteMyReview, submitReport, canCustomerReviewGarage,
 } from '../../lib/data';
+import { getOpenStatus, normalizeWorkingDays } from '../../lib/hours';
 
 interface Review {
     _id: string;
@@ -22,6 +23,7 @@ interface Review {
 interface GarageDetail {
     _id: string;
     name: string;
+    phone: string;
     location: {
         address: string;
         coordinates: [number, number];
@@ -155,8 +157,7 @@ export default function GarageDetailPage() {
     };
 
     const handleCall = () => {
-        // In a real app, this would use the garage's phone number
-        window.open('tel:+919999999999');
+        if (garage?.phone) window.location.href = `tel:+91${garage.phone}`;
     };
 
     const handleDirections = () => {
@@ -276,20 +277,20 @@ export default function GarageDetailPage() {
                         </div>
                         <div className="flex items-center gap-3">
                             <Clock className="w-5 h-5 text-slate-400 dark:text-[var(--app-muted)]" />
-                            <span className="text-slate-600 dark:text-[var(--app-muted)] text-sm">{garage.serviceHours}</span>
+                            <span className="text-slate-600 dark:text-[var(--app-muted)] text-sm">
+                                {garage.serviceHours || 'Hours not listed'}
+                                {(() => {
+                                    const open = getOpenStatus(garage.serviceHours, garage.workingDays);
+                                    return open.known ? (
+                                        <span className={`ml-2 font-semibold ${open.isOpen ? 'text-green-600' : 'text-slate-400'}`}>· {open.isOpen ? 'Open now' : 'Closed'}</span>
+                                    ) : null;
+                                })()}
+                            </span>
                         </div>
                         <div className="flex items-center gap-3">
                             <Calendar className="w-5 h-5 text-slate-400 dark:text-[var(--app-muted)]" />
                             <span className="text-slate-600 dark:text-[var(--app-muted)] text-sm">
-                                {Array.isArray(garage.workingDays)
-                                    ? garage.workingDays.join(', ')
-                                    : garage.workingDays.split('').map((day, i, arr) => {
-                                        if ((i + 1) % 3 === 0 && i !== arr.length - 1) {
-                                            return day + ', ';
-                                        }
-                                        return day;
-                                    }).join('')
-                                }
+                                {normalizeWorkingDays(garage.workingDays).join(', ') || 'Not listed'}
                             </span>
                         </div>
                     </div>
@@ -298,6 +299,7 @@ export default function GarageDetailPage() {
                     <div className="flex gap-3 mt-6">
                         <button
                             onClick={handleCall}
+                            disabled={!garage.phone}
                             className="flex-1 flex items-center justify-center gap-2 bg-slate-100 dark:bg-[var(--app-surface-2)] text-slate-700 dark:text-[var(--app-text)] py-3 rounded-xl font-semibold hover:bg-slate-200 dark:hover:bg-[var(--app-surface-2)] transition-colors"
                         >
                             <Phone className="w-5 h-5" />

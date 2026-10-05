@@ -1,347 +1,206 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, MapPin, Star, Phone, LogOut, X, Loader2, Filter, Navigation, ChevronRight, Settings, Clock, Headphones, User, Shield, Check, XCircle, Wrench } from 'lucide-react';
+import { Search, MapPin, Star, Phone, LogOut, X, Loader2, Filter, Navigation, ChevronRight, Settings, Clock, Headphones, User, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useLocation } from '../../hooks/useLocation';
 import { useAuth } from '../../contexts/AuthContext';
-import { discoverGarages, type GarageProfile } from '../../lib/api';
-import { getUnratedGarage, submitReview } from '../../lib/data';
-import { supabase } from '../../lib/supabase';
+import { discoverGarages, formatDistance, getCustomerProfile, getUnratedGarage, submitReview, type NearbyGarage, type UnratedGarage } from '../../lib/data';
+import { getOpenStatus } from '../../lib/hours';
 import GarageMap from '../../components/GarageMap';
+import GaragePhoto from '../../components/GaragePhoto';
 import { useNotifications } from '../../hooks/useNotifications';
 
-type Garage = {
-    id: string;
-    name: string;
-    distance: string;
-    rating: number;
-    reviews: number;
-    photo: string;
-    lat: number;
-    lng: number;
-    totalServices?: number;
-    phone?: string;
-    joinedDate?: string;
-    serviceHours?: string;
-};
+const SEARCH_RADIUS_KM = 5;
+const PAGE_SIZE = 5;
 
-const isGarageOpen = (serviceHours?: string): boolean => {
-    if (!serviceHours) return false;
+type SortKey = 'distance' | 'rating' | 'reviews';
 
-    // Parse service hours like "9:00 AM - 10:00 PM"
-    const match = serviceHours.match(/(\d{1,2}):(\d{2})\s*(AM|PM)\s*-\s*(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-    if (!match) return false;
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+    { value: 'distance', label: 'Nearest' },
+    { value: 'rating', label: 'Top rated' },
+    { value: 'reviews', label: 'Most reviewed' },
+];
 
-    const [, startHour, startMin, startPeriod, endHour, endMin, endPeriod] = match;
-
-    const convertTo24 = (hour: string, period: string) => {
-        let h = parseInt(hour);
-        if (period.toUpperCase() === 'PM' && h !== 12) h += 12;
-        if (period.toUpperCase() === 'AM' && h === 12) h = 0;
-        return h;
-    };
-
-    const now = new Date();
-    const currentHour = now.getHours();
-    const currentMin = now.getMinutes();
-    const currentTime = currentHour * 60 + currentMin;
-
-    const openTime = convertTo24(startHour, startPeriod) * 60 + parseInt(startMin);
-    const closeTime = convertTo24(endHour, endPeriod) * 60 + parseInt(endMin);
-
-    // Overnight hours (e.g. "10:00 PM - 2:00 AM") wrap past midnight, so close < open.
-    if (closeTime <= openTime) {
-        return currentTime >= openTime || currentTime <= closeTime;
-    }
-    return currentTime >= openTime && currentTime <= closeTime;
-};
-
-interface UnratedService {
-    garageId: string;
-    garageName: string;
-    garagePhoto?: string;
-    serviceDescription: string;
-    serviceDate: string;
+function joinedLabel(iso: string | null): string | null {
+    if (!iso) return null;
+    return new Date(iso).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
 }
 
-const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): string => {
-    const R = 6371;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLng = (lng2 - lng1) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-        Math.sin(dLng / 2) * Math.sin(dLng / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    const distance = R * c;
-    return distance < 1 ? `${Math.round(distance * 1000)} m` : `${distance.toFixed(1)} km`;
-};
+function directionsUrl(g: NearbyGarage): string {
+    return `https://www.google.com/maps/dir/?api=1&destination=${g.lat},${g.lng}`;
+}
 
-const transformApiGarage = (apiGarage: any, userLat: number, userLng: number): Garage => {
-    const coords = apiGarage.location?.coordinates || [0, 0];
-    const lat = coords[1] || userLat;
-    const lng = coords[0] || userLng;
-
-    console.log('Transforming garage:', {
-        name: apiGarage.name,
-        rawCoords: coords,
-        extractedLat: lat,
-        extractedLng: lng,
-        totalServices: apiGarage.totalServices
-    });
-
-    return {
-        id: apiGarage._id,
-        name: apiGarage.name || 'Unnamed Garage',
-        distance: calculateDistance(userLat, userLng, lat, lng),
-        rating: apiGarage.rating || 4.5,
-        reviews: apiGarage.totalReviews || 0,
-        photo: apiGarage.photoUrl || 'https://images.unsplash.com/photo-1517524008410-b44c6059b850?q=80&w=800',
-        lat,
-        lng,
-        totalServices: apiGarage.totalServices || 0,
-        phone: apiGarage.userId?.phoneNumber || apiGarage.phone || '',
-        joinedDate: apiGarage.createdAt
-            ? `${String(new Date(apiGarage.createdAt).getMonth() + 1).padStart(2, '0')}/${new Date(apiGarage.createdAt).getFullYear()}`
-            : '01/2024',
-        serviceHours: apiGarage.serviceHours || '',
-    };
-};
+function RatingBadge({ garage }: { garage: NearbyGarage }) {
+    if (garage.reviews === 0) {
+        return (
+            <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded-md border border-emerald-100 dark:border-emerald-900/50">
+                New
+            </span>
+        );
+    }
+    return (
+        <span className="flex items-center gap-1 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded-md border border-amber-100 dark:border-amber-900/50">
+            <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
+            <span className="font-bold text-amber-700 dark:text-amber-300">{garage.rating.toFixed(1)}</span>
+            <span className="text-slate-400 dark:text-[var(--app-muted)]">({garage.reviews})</span>
+        </span>
+    );
+}
 
 export default function CustomerHome() {
-    const [selectedGarage, setSelectedGarage] = useState<Garage | null>(null);
+    const navigate = useNavigate();
+    const { logout, userData } = useAuth();
+    const { location, loading: locating, permissionDenied, requestLocation } = useLocation();
+
+    const [garages, setGarages] = useState<NearbyGarage[]>([]);
+    const [loadingGarages, setLoadingGarages] = useState(false);
+    const [loadError, setLoadError] = useState('');
+    const [selectedGarage, setSelectedGarage] = useState<NearbyGarage | null>(null);
     const [search, setSearch] = useState('');
-    const [garages, setGarages] = useState<Garage[]>([]);
+    const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+    const [customerName, setCustomerName] = useState('');
+
     const [showLogoutModal, setShowLogoutModal] = useState(false);
     const [showProfilePanel, setShowProfilePanel] = useState(false);
-    const [isLoadingGarages, setIsLoadingGarages] = useState(false);
-    const [customerName, setCustomerName] = useState('Customer');
-    const [visibleCount, setVisibleCount] = useState(3);
-
-    // Filter state
     const [showFilterModal, setShowFilterModal] = useState(false);
-    const [sortBy, setSortBy] = useState<'distance' | 'rating' | 'reviews' | 'services'>('distance');
+    const [sortBy, setSortBy] = useState<SortKey>('distance');
     const [showOpenOnly, setShowOpenOnly] = useState(false);
     const [minRating, setMinRating] = useState(0);
 
-    // Unrated service state
-    const [unratedService, setUnratedService] = useState<UnratedService | null>(null);
+    const [unrated, setUnrated] = useState<UnratedGarage | null>(null);
     const [reviewRating, setReviewRating] = useState(0);
     const [reviewComment, setReviewComment] = useState('');
     const [submittingReview, setSubmittingReview] = useState(false);
+    const [reviewError, setReviewError] = useState('');
 
-    // Pending service approvals
-    const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
-    const [approvingId, setApprovingId] = useState<string | null>(null);
+    // Native push (FCM) registration + delivery acks. A push (OTP/invoice) may
+    // mean a newly completed service, so re-check the rating nudge.
+    const refreshUnrated = useCallback(() => {
+        if (!userData?._id || !userData.phoneNumber) return;
+        getUnratedGarage(userData._id, userData.phoneNumber).then(setUnrated).catch(() => setUnrated(null));
+    }, [userData?._id, userData?.phoneNumber]);
+    useNotifications(userData?._id, refreshUnrated);
 
-    const { logout, userData } = useAuth();
-
-    // Register native push (FCM) for this customer + ack incoming OTP/invoice pushes
-    useNotifications(userData?._id, () => fetchPendingApprovals());
-
-    // Load customer name from profile
-    useEffect(() => {
-        const savedProfile = localStorage.getItem('customerProfile');
-        if (savedProfile) {
-            try {
-                const profile = JSON.parse(savedProfile);
-                if (profile?.name) setCustomerName(profile.name);
-            } catch {
-                // Corrupted value — ignore rather than crash the effect.
-                localStorage.removeItem('customerProfile');
-            }
-        }
-    }, [showProfilePanel]);
-
-    // Fetch unrated services and pending approvals (once the profile is loaded)
     useEffect(() => {
         if (!userData?._id) return;
-        fetchUnratedService();
-        fetchPendingApprovals();
-    }, [userData?._id]);
+        refreshUnrated();
+        getCustomerProfile(userData._id).then((p) => setCustomerName(p.name)).catch(() => {});
+    }, [userData?._id, refreshUnrated]);
 
-    const fetchPendingApprovals = async () => {
-        // The OTP verification step now serves as the customer's approval, so there is no
-        // separate "pending approval" queue in the new flow. Kept as a no-op for the UI.
-        setPendingApprovals([]);
-    };
-
-    const handleApproveService = async (serviceId: string) => {
-        setApprovingId(serviceId);
+    const loadGarages = useCallback(async () => {
+        setLoadingGarages(true);
+        setLoadError('');
         try {
-            await supabase.from('service_records').update({ approved_by_customer: true }).eq('id', serviceId);
-            setPendingApprovals(prev => prev.filter(p => p._id !== serviceId));
-        } catch (err) {
-            console.error('Approve service error:', err);
+            setGarages(await discoverGarages(location.lat, location.lng, SEARCH_RADIUS_KM));
+        } catch {
+            setGarages([]);
+            setLoadError("Couldn't load garages. Check your connection and try again.");
         } finally {
-            setApprovingId(null);
+            setLoadingGarages(false);
         }
-    };
+    }, [location.lat, location.lng]);
 
-    const handleRejectService = async (serviceId: string) => {
-        setApprovingId(serviceId);
-        try {
-            await supabase.from('service_records').update({ approved_by_customer: false }).eq('id', serviceId);
-            setPendingApprovals(prev => prev.filter(p => p._id !== serviceId));
-        } catch (err) {
-            console.error('Reject service error:', err);
-        } finally {
-            setApprovingId(null);
-        }
-    };
+    useEffect(() => {
+        if (!locating) loadGarages();
+    }, [locating, loadGarages]);
 
-    const fetchUnratedService = async () => {
-        try {
-            if (!userData?._id || !userData?.phoneNumber) return;
-            const unrated = await getUnratedGarage(userData._id, userData.phoneNumber);
-            if (unrated) {
-                setUnratedService({
-                    garageId: unrated.garageId,
-                    garageName: unrated.garageName,
-                    serviceDescription: unrated.serviceDescription,
-                    serviceDate: unrated.serviceDate,
-                });
-            }
-        } catch (error) {
-            console.error('Error fetching unrated services:', error);
-        }
-    };
+    const visibleGarages = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        return garages
+            .filter((g) => !q || g.name.toLowerCase().includes(q) || g.address.toLowerCase().includes(q))
+            .filter((g) => !showOpenOnly || getOpenStatus(g.serviceHours, g.workingDays).isOpen)
+            .filter((g) => minRating === 0 || (g.reviews > 0 && g.rating >= minRating))
+            .sort((a, b) => {
+                if (sortBy === 'rating') return b.rating - a.rating || a.distanceKm - b.distanceKm;
+                if (sortBy === 'reviews') return b.reviews - a.reviews || a.distanceKm - b.distanceKm;
+                return a.distanceKm - b.distanceKm;
+            });
+    }, [garages, search, showOpenOnly, minRating, sortBy]);
+
+    const pageOfGarages = visibleGarages.slice(0, visibleCount);
+    const activeFiltersCount = (sortBy !== 'distance' ? 1 : 0) + (showOpenOnly ? 1 : 0) + (minRating > 0 ? 1 : 0);
+    const busy = locating || loadingGarages;
 
     const handleSubmitReview = async () => {
-        if (reviewRating === 0 || !unratedService || !userData?._id) return;
-
+        if (reviewRating === 0 || !unrated || !userData?._id) return;
         setSubmittingReview(true);
+        setReviewError('');
         try {
-            await submitReview(userData._id, unratedService.garageId, reviewRating, reviewComment);
-            setUnratedService(null);
+            await submitReview(userData._id, unrated.garageId, reviewRating, reviewComment);
+            setUnrated(null);
             setReviewRating(0);
             setReviewComment('');
-        } catch (error) {
-            console.error('Error submitting review:', error);
-            alert('Failed to submit review');
+        } catch {
+            setReviewError("Couldn't save your rating. Please try again.");
         } finally {
             setSubmittingReview(false);
         }
     };
-
-    const navigate = useNavigate();
-    const { location, loading, permissionDenied } = useLocation();
 
     const handleLogout = async () => {
         await logout();
         navigate('/auth');
     };
 
-    useEffect(() => {
-        const fetchGarages = async () => {
-            console.log('fetchGarages started', { loading });
-            if (loading) return;
-
-            setIsLoadingGarages(true);
-            try {
-                console.log('Calling discoverGarages...');
-                const result = await discoverGarages(location.lat, location.lng, 5000); // 5km radius
-                console.log('discoverGarages result:', result);
-
-                if (result.data && result.data.length > 0) {
-                    const transformed = result.data.map((g: GarageProfile) =>
-                        transformApiGarage(g, location.lat, location.lng)
-                    );
-                    setGarages(transformed);
-                } else {
-                    setGarages([]); // No garages found
-                }
-            } catch (error) {
-                console.error('Error fetching garages:', error);
-                setGarages([]); // Error fallback
-            } finally {
-                setIsLoadingGarages(false);
-            }
-        };
-
-        fetchGarages();
-    }, [location, loading]);
-
-    // Parse distance helper
-    const parseDistance = (d: string) => {
-        const num = parseFloat(d);
-        return d.includes('km') ? num * 1000 : num;
+    const resetFilters = () => {
+        setSortBy('distance');
+        setShowOpenOnly(false);
+        setMinRating(0);
     };
 
-    // Sort and filter garages
-    const sortedGarages = [...garages]
-        .filter(g => {
-            // Only include garages under 5km
-            const distKm = parseDistance(g.distance) / 1000;
-            if (distKm >= 5) return false;
-
-            // Filter by search
-            if (search && !g.name.toLowerCase().includes(search.toLowerCase())) return false;
-
-            // Filter by open now
-            if (showOpenOnly && !isGarageOpen(g.serviceHours)) return false;
-
-            // Filter by minimum rating
-            if (minRating > 0 && (g.rating || 0) < minRating) return false;
-
-            return true;
-        })
-        .sort((a, b) => {
-            switch (sortBy) {
-                case 'rating':
-                    return (b.rating || 0) - (a.rating || 0);
-                case 'reviews':
-                    return (b.reviews || 0) - (a.reviews || 0);
-                case 'services':
-                    return (b.totalServices || 0) - (a.totalServices || 0);
-                case 'distance':
-                default:
-                    return parseDistance(a.distance) - parseDistance(b.distance);
-            }
-        });
-
-    const filteredGarages = sortedGarages.slice(0, visibleCount);
-
-    const totalFilteredCount = sortedGarages.length;
-
-    const hasMore = visibleCount < totalFilteredCount;
-
-    const activeFiltersCount = (sortBy !== 'distance' ? 1 : 0) + (showOpenOnly ? 1 : 0) + (minRating > 0 ? 1 : 0);
+    const firstName = customerName.trim().split(/\s+/)[0];
 
     return (
         <div className="max-w-md mx-auto min-h-screen bg-slate-50 dark:bg-[var(--app-bg)] flex flex-col pt-safe pb-6 px-4">
             {/* Header */}
             <header className="flex items-center justify-between py-6 mb-2">
                 <div>
+                    <p className="text-slate-400 dark:text-[var(--app-muted)] text-sm font-semibold">
+                        {firstName ? `Hi ${firstName} 👋` : 'Welcome 👋'}
+                    </p>
                     <h1 className="text-3xl font-extrabold text-slate-900 dark:text-[var(--app-text)] tracking-tight">Find a Mechanic</h1>
                     <p className="text-blue-600 text-sm font-semibold flex items-center gap-1.5 mt-1">
                         <Navigation className="w-3.5 h-3.5 fill-blue-600" />
-                        {loading || isLoadingGarages ? 'Locating...' :
-                            permissionDenied ? 'Pune City Center' :
-                                `${garages.length} garages nearby`}
+                        {busy ? 'Locating…'
+                            : permissionDenied ? 'Location off · showing Pune'
+                                : `${visibleGarages.length} garage${visibleGarages.length === 1 ? '' : 's'} within ${SEARCH_RADIUS_KM} km`}
                     </p>
                 </div>
                 <button
                     onClick={() => setShowProfilePanel(true)}
+                    aria-label="Menu"
                     className="w-12 h-12 flex items-center justify-center bg-white dark:bg-[var(--app-surface)] rounded-2xl shadow-sm border border-slate-100 dark:border-[var(--app-border)] text-slate-400 dark:text-[var(--app-muted)] active:bg-slate-50 dark:active:bg-[var(--app-bg)] transition-colors"
                 >
                     <Settings className="w-5.5 h-5.5" />
                 </button>
             </header>
 
+            {permissionDenied && (
+                <button
+                    onClick={requestLocation}
+                    className="mb-4 w-full text-left bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-200 rounded-2xl px-4 py-3 text-sm font-medium flex items-center gap-3"
+                >
+                    <MapPin className="w-4 h-4 shrink-0" />
+                    <span className="flex-1">Turn on location to see garages near you.</span>
+                    <span className="font-bold">Retry</span>
+                </button>
+            )}
+
             {/* Search */}
             <div className="flex gap-3 mb-8">
                 <div className="relative flex-1">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 dark:text-[var(--app-muted)]" />
                     <input
-                        type="text"
-                        placeholder="Search mechanics or garages"
+                        type="search"
+                        placeholder="Search garages or area"
                         className="w-full h-14 bg-white dark:bg-[var(--app-surface)] rounded-2xl pl-12 pr-4 border-none shadow-[0_8px_30px_rgb(0,0,0,0.04)] focus:ring-2 focus:ring-blue-100 placeholder:text-slate-300 dark:placeholder:text-[#5A6B82] font-medium"
                         value={search}
-                        onChange={(e) => setSearch(e.target.value)}
+                        onChange={(e) => { setSearch(e.target.value); setVisibleCount(PAGE_SIZE); }}
                     />
                 </div>
                 <button
                     onClick={() => setShowFilterModal(true)}
+                    aria-label="Filters"
                     className="relative w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20 text-white active:scale-95 transition-all"
                 >
                     <Filter className="w-5.5 h-5.5" />
@@ -354,80 +213,50 @@ export default function CustomerHome() {
             </div>
 
             {/* Map Preview */}
-            <div className="relative h-56 rounded-[2.5rem] overflow-hidden mb-10 shadow-2xl shadow-blue-900/10 border-4 border-white">
+            <div className="relative h-56 rounded-[2.5rem] overflow-hidden mb-10 shadow-2xl shadow-blue-900/10 border-4 border-white dark:border-[var(--app-surface)]">
                 <GarageMap
-                    garages={garages.map(g => ({
-                        id: g.id,
-                        name: g.name,
-                        lat: g.lat,
-                        lng: g.lng,
-                        rating: g.rating,
-                        reviews: g.reviews,
-                        photo: g.photo,
-                        phone: g.phone
+                    garages={visibleGarages.map((g) => ({
+                        id: g.id, name: g.name, lat: g.lat, lng: g.lng,
+                        rating: g.rating, reviews: g.reviews, photo: g.photoUrl ?? undefined, phone: g.phone,
                     }))}
                     userLocation={location}
-                    onGarageSelect={(g) => {
-                        const full = garages.find(garage => garage.id === g.id);
-                        if (full) setSelectedGarage(full);
-                    }}
+                    onGarageSelect={(g) => setSelectedGarage(garages.find((x) => x.id === g.id) ?? null)}
                 />
-                <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-full text-[10px] font-bold text-blue-600 shadow-sm border border-blue-50">
+                <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-full text-[10px] font-bold text-blue-600 shadow-sm border border-blue-50 z-[400]">
                     TAP MARKERS
                 </div>
             </div>
 
-            {/* Unrated Service Prompt */}
-            {unratedService && (
+            {/* Rate your last garage */}
+            {unrated && (
                 <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/40 dark:to-orange-950/40 rounded-3xl p-5 mb-6 border border-amber-200 dark:border-amber-800/50"
                 >
                     <div className="flex items-start gap-3 mb-4">
-                        <div className="w-12 h-12 rounded-2xl bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center overflow-hidden flex-shrink-0">
-                            {unratedService.garagePhoto ? (
-                                <img src={unratedService.garagePhoto} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                                <Star className="w-6 h-6 text-amber-600" />
-                            )}
+                        <div className="w-12 h-12 rounded-2xl bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center flex-shrink-0">
+                            <Star className="w-6 h-6 text-amber-600" />
                         </div>
-                        <div className="flex-1">
-                            <h3 className="font-bold text-slate-900 dark:text-[var(--app-text)] text-sm">Rate your experience</h3>
-                            <p className="text-xs text-slate-600 dark:text-[var(--app-muted)] mt-0.5">{unratedService.garageName}</p>
-                            <p className="text-xs text-slate-400 dark:text-[var(--app-muted)] mt-1 line-clamp-1">{unratedService.serviceDescription}</p>
+                        <div className="flex-1 min-w-0">
+                            <h3 className="font-bold text-slate-900 dark:text-[var(--app-text)] text-sm">How was {unrated.garageName}?</h3>
+                            <p className="text-xs text-slate-500 dark:text-[var(--app-muted)] mt-1 line-clamp-1">{unrated.serviceDescription}</p>
                         </div>
-                        <button
-                            onClick={() => setUnratedService(null)}
-                            className="text-slate-400 dark:text-[var(--app-muted)] hover:text-slate-600 dark:hover:text-[var(--app-muted)]"
-                        >
+                        <button onClick={() => setUnrated(null)} aria-label="Dismiss" className="text-slate-400 dark:text-[var(--app-muted)]">
                             <X className="w-5 h-5" />
                         </button>
                     </div>
 
                     <div className="flex justify-center gap-2 mb-4">
-                        {[1, 2, 3, 4, 5].map(star => (
-                            <button
-                                key={star}
-                                onClick={() => setReviewRating(star)}
-                                className="transition-transform hover:scale-110 active:scale-95"
-                            >
-                                <Star
-                                    className={`w-10 h-10 ${star <= reviewRating
-                                        ? 'fill-amber-400 text-amber-400'
-                                        : 'text-slate-300 dark:text-slate-600'
-                                        }`}
-                                />
+                        {[1, 2, 3, 4, 5].map((star) => (
+                            <button key={star} onClick={() => setReviewRating(star)} aria-label={`${star} star${star > 1 ? 's' : ''}`} className="transition-transform active:scale-90">
+                                <Star className={`w-10 h-10 ${star <= reviewRating ? 'fill-amber-400 text-amber-400' : 'text-slate-300 dark:text-slate-600'}`} />
                             </button>
                         ))}
                     </div>
 
                     {reviewRating > 0 && (
-                        <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 'auto' }}
-                            className="space-y-3"
-                        >
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-3">
                             <textarea
                                 value={reviewComment}
                                 onChange={(e) => setReviewComment(e.target.value)}
@@ -436,16 +265,13 @@ export default function CustomerHome() {
                                 maxLength={500}
                                 className="w-full px-4 py-3 rounded-xl border border-amber-200 dark:border-amber-800/50 bg-white dark:bg-[var(--app-surface)] text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
                             />
+                            {reviewError && <p className="text-red-600 text-xs font-medium">{reviewError}</p>}
                             <button
                                 onClick={handleSubmitReview}
                                 disabled={submittingReview}
-                                className="w-full bg-amber-500 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-amber-600 transition-colors disabled:opacity-50"
+                                className="w-full bg-amber-500 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50"
                             >
-                                {submittingReview ? (
-                                    <Loader2 className="w-5 h-5 animate-spin" />
-                                ) : (
-                                    'Done'
-                                )}
+                                {submittingReview ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Submit rating'}
                             </button>
                         </motion.div>
                     )}
@@ -456,253 +282,242 @@ export default function CustomerHome() {
             <div className="flex-1 space-y-5">
                 <div className="flex items-center justify-between mb-2">
                     <h2 className="text-xl font-bold text-slate-900 dark:text-[var(--app-text)]">Nearby Garages</h2>
-                    <span className="text-slate-400 dark:text-[var(--app-muted)] text-sm">{totalFilteredCount} found</span>
+                    {!busy && <span className="text-slate-400 dark:text-[var(--app-muted)] text-sm">{visibleGarages.length} found</span>}
                 </div>
 
-                {isLoadingGarages ? (
-                    <div className="flex flex-col items-center justify-center py-20 gap-4">
-                        <Loader2 className="w-10 h-10 animate-spin text-blue-600" />
-                        <p className="text-slate-400 dark:text-[var(--app-muted)] font-medium">Finding best mechanics...</p>
+                {busy ? (
+                    <div className="space-y-5" aria-busy="true">
+                        {[0, 1, 2].map((i) => (
+                            <div key={i} className="h-36 rounded-3xl bg-white dark:bg-[var(--app-surface)] border border-slate-100 dark:border-[var(--app-border)] flex overflow-hidden animate-pulse">
+                                <div className="w-1/3 bg-slate-100 dark:bg-[var(--app-surface-2)]" />
+                                <div className="flex-1 p-4 space-y-3">
+                                    <div className="h-5 w-2/3 rounded bg-slate-100 dark:bg-[var(--app-surface-2)]" />
+                                    <div className="h-4 w-1/3 rounded bg-slate-100 dark:bg-[var(--app-surface-2)]" />
+                                    <div className="h-4 w-1/2 rounded bg-slate-100 dark:bg-[var(--app-surface-2)]" />
+                                </div>
+                            </div>
+                        ))}
                     </div>
-                ) : filteredGarages.length === 0 ? (
-                    <div className="text-center py-20">
-                        <p className="text-slate-400 dark:text-[var(--app-muted)] font-medium">No results Match your search</p>
+                ) : loadError ? (
+                    <div className="text-center py-16">
+                        <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto mb-3" />
+                        <p className="text-slate-500 dark:text-[var(--app-muted)] font-medium mb-4">{loadError}</p>
+                        <button onClick={loadGarages} className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-blue-600 text-white font-bold">
+                            <RefreshCw className="w-4 h-4" /> Try again
+                        </button>
+                    </div>
+                ) : visibleGarages.length === 0 ? (
+                    <div className="text-center py-16">
+                        <p className="text-slate-700 dark:text-[var(--app-text)] font-bold mb-1">
+                            {garages.length === 0 ? 'No garages nearby yet' : 'No garages match'}
+                        </p>
+                        <p className="text-slate-400 dark:text-[var(--app-muted)] text-sm mb-4">
+                            {garages.length === 0
+                                ? `We're onboarding garages within ${SEARCH_RADIUS_KM} km of you.`
+                                : 'Try a different search or clear your filters.'}
+                        </p>
+                        {garages.length > 0 && (
+                            <button onClick={() => { setSearch(''); resetFilters(); }} className="text-blue-600 font-bold">Clear search & filters</button>
+                        )}
                     </div>
                 ) : (
-                    filteredGarages.map(garage => (
-                        <motion.div
-                            initial={{ opacity: 0, y: 10 }}
-                            whileInView={{ opacity: 1, y: 0 }}
-                            viewport={{ once: true }}
-                            key={garage.id}
-                            className="w-full bg-white dark:bg-[var(--app-surface)] rounded-3xl shadow-sm border border-slate-100 dark:border-[var(--app-border)] overflow-hidden flex flex-row h-36"
-                        >
-                            <div className="w-1/3 h-full relative" onClick={() => navigate(`/customer/garage/${garage.id}`)}>
-                                <img
-                                    src={garage.photo}
-                                    alt={garage.name}
-                                    className="w-full h-full object-cover"
-                                />
-                            </div>
+                    pageOfGarages.map((garage) => {
+                        const open = getOpenStatus(garage.serviceHours, garage.workingDays);
+                        const joined = joinedLabel(garage.joinedAt);
+                        return (
+                            <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                whileInView={{ opacity: 1, y: 0 }}
+                                viewport={{ once: true }}
+                                key={garage.id}
+                                className="w-full bg-white dark:bg-[var(--app-surface)] rounded-3xl shadow-sm border border-slate-100 dark:border-[var(--app-border)] overflow-hidden flex flex-row h-36 cursor-pointer active:scale-[0.99] transition-transform"
+                                onClick={() => navigate(`/customer/garage/${garage.id}`)}
+                            >
+                                <GaragePhoto src={garage.photoUrl} name={garage.name} className="w-1/3 h-full" />
 
-                            <div className="flex-1 p-4 flex flex-col justify-between" onClick={() => navigate(`/customer/garage/${garage.id}`)}>
-                                <div>
-                                    <h3 className="font-bold text-slate-900 dark:text-[var(--app-text)] mb-1 truncate text-lg leading-tight">{garage.name}</h3>
-                                    <div className="flex items-center gap-2 text-xs mb-2">
-                                        <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded-md border border-amber-100 dark:border-amber-900/50">
-                                            <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
-                                            <span className="font-bold text-amber-700 dark:text-amber-300">{garage.rating}</span>
+                                <div className="flex-1 p-4 flex flex-col justify-between min-w-0">
+                                    <div>
+                                        <h3 className="font-bold text-slate-900 dark:text-[var(--app-text)] mb-1 truncate text-lg leading-tight">{garage.name}</h3>
+                                        <div className="flex items-center gap-2 text-xs mb-2">
+                                            <RatingBadge garage={garage} />
+                                            <span className="text-slate-500 dark:text-[var(--app-muted)] font-semibold">{formatDistance(garage.distanceKm)}</span>
                                         </div>
-                                        <span className="text-slate-400 dark:text-[var(--app-muted)] font-medium">({garage.reviews} reviews)</span>
-                                    </div>
-                                    <div className="flex items-center gap-4 text-xs text-slate-500 dark:text-[var(--app-muted)]">
-                                        <span className="flex items-center gap-1">
-                                            <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
-                                            {garage.totalServices || 0} services
-                                        </span>
-                                        {isGarageOpen(garage.serviceHours) && (
-                                            <span className="flex items-center gap-1 text-green-600 font-semibold">
-                                                <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
-                                                Open Now
+                                        {open.known && (
+                                            <span className={`flex items-center gap-1 text-xs font-semibold ${open.isOpen ? 'text-green-600' : 'text-slate-400 dark:text-[var(--app-muted)]'}`}>
+                                                <span className={`w-1.5 h-1.5 rounded-full ${open.isOpen ? 'bg-green-500 animate-pulse' : 'bg-slate-300'}`} />
+                                                {open.label}
                                             </span>
                                         )}
                                     </div>
-                                </div>
 
-                                <div className="flex items-center justify-between mt-auto">
-                                    <span className="text-[10px] text-slate-400 dark:text-[var(--app-muted)] font-medium bg-slate-50 dark:bg-[var(--app-bg)] px-2 py-1 rounded-full border border-slate-100 dark:border-[var(--app-border)]">
-                                        Joined since {garage.joinedDate}
-                                    </span>
+                                    <div className="flex items-center justify-between mt-auto">
+                                        {joined ? (
+                                            <span className="text-[10px] text-slate-400 dark:text-[var(--app-muted)] font-medium bg-slate-50 dark:bg-[var(--app-bg)] px-2 py-1 rounded-full border border-slate-100 dark:border-[var(--app-border)]">
+                                                On KYM since {joined}
+                                            </span>
+                                        ) : <span />}
 
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                console.log('Opening directions to:', { lat: garage.lat, lng: garage.lng, name: garage.name });
-                                                window.open(`https://www.google.com/maps/dir//${garage.lat},${garage.lng}`);
-                                            }}
-                                            className="w-9 h-9 bg-blue-50 dark:bg-blue-950/40 rounded-full flex items-center justify-center text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors border border-blue-100 dark:border-blue-900/50"
-                                        >
-                                            <Navigation className="w-4 h-4 fill-blue-600" />
-                                        </button>
-
-                                        {garage.phone && (
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    window.open(`tel:${garage.phone}`);
-                                                }}
-                                                className="w-9 h-9 bg-green-50 dark:bg-green-950/40 rounded-full flex items-center justify-center text-green-600 hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors border border-green-100 dark:border-green-900/50"
+                                        <div className="flex items-center gap-2">
+                                            <a
+                                                href={directionsUrl(garage)}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                aria-label={`Directions to ${garage.name}`}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="w-9 h-9 bg-blue-50 dark:bg-blue-950/40 rounded-full flex items-center justify-center text-blue-600 border border-blue-100 dark:border-blue-900/50"
                                             >
-                                                <Phone className="w-4 h-4" />
-                                            </button>
-                                        )}
+                                                <Navigation className="w-4 h-4 fill-blue-600" />
+                                            </a>
+                                            {garage.phone && (
+                                                <a
+                                                    href={`tel:+91${garage.phone}`}
+                                                    aria-label={`Call ${garage.name}`}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    className="w-9 h-9 bg-green-50 dark:bg-green-950/40 rounded-full flex items-center justify-center text-green-600 border border-green-100 dark:border-green-900/50"
+                                                >
+                                                    <Phone className="w-4 h-4" />
+                                                </a>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        </motion.div>
-                    ))
+                            </motion.div>
+                        );
+                    })
                 )}
 
-                {/* See More Button */}
-                {hasMore && !isLoadingGarages && (
+                {!busy && visibleCount < visibleGarages.length && (
                     <button
-                        onClick={() => setVisibleCount(prev => prev + 5)}
-                        className="w-full py-3 bg-blue-50 dark:bg-blue-950/40 text-blue-600 font-bold rounded-2xl hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
+                        onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+                        className="w-full py-3 bg-blue-50 dark:bg-blue-950/40 text-blue-600 font-bold rounded-2xl"
                     >
-                        See More
+                        Show more ({visibleGarages.length - visibleCount})
                     </button>
                 )}
             </div>
 
-            {/* Garage Detail Modal */}
+            {/* Garage quick-view sheet (from a map marker) */}
             <AnimatePresence>
-                {selectedGarage && (
-                    <>
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100]"
-                            onClick={() => setSelectedGarage(null)}
-                        />
-                        <motion.div
-                            initial={{ y: '100%' }}
-                            animate={{ y: 0 }}
-                            exit={{ y: '100%' }}
-                            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                            className="fixed bottom-0 left-0 right-0 bg-white dark:bg-[var(--app-surface)] rounded-t-[3rem] p-8 pb-12 z-[101] shadow-2xl max-w-md mx-auto"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <div className="w-12 h-1.5 bg-slate-100 dark:bg-[var(--app-surface-2)] rounded-full mx-auto mb-8" />
-
-                            <div className="flex justify-between items-start mb-6">
-                                <div className="flex-1">
-                                    <h2 className="text-2xl font-black text-slate-900 dark:text-[var(--app-text)] mb-1">{selectedGarage.name}</h2>
-                                    <p className="text-blue-600 font-bold flex items-center gap-1 bg-blue-50 dark:bg-blue-950/40 w-fit px-3 py-1 rounded-full text-xs">
-                                        <MapPin className="w-3 h-3" />
-                                        {selectedGarage.distance} from you
-                                    </p>
-                                </div>
-                                <button
-                                    onClick={() => setSelectedGarage(null)}
-                                    className="w-10 h-10 bg-slate-50 dark:bg-[var(--app-bg)] rounded-full flex items-center justify-center text-slate-400 dark:text-[var(--app-muted)]"
-                                >
-                                    <X className="w-5 h-5" />
-                                </button>
-                            </div>
-
-                            <img
-                                src={selectedGarage.photo}
-                                alt={selectedGarage.name}
-                                className="w-full h-52 rounded-[2rem] object-cover mb-8 shadow-lg shadow-blue-100"
+                {selectedGarage && (() => {
+                    const open = getOpenStatus(selectedGarage.serviceHours, selectedGarage.workingDays);
+                    return (
+                        <>
+                            <motion.div
+                                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                                className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[1000]"
+                                onClick={() => setSelectedGarage(null)}
                             />
-
-                            <div className="grid grid-cols-2 gap-4 mb-8 text-center text-sm font-bold">
-                                <div className="bg-slate-50 dark:bg-[var(--app-bg)] p-4 rounded-2xl">
-                                    <p className="text-slate-400 dark:text-[var(--app-muted)] text-xs mb-1">Open Until</p>
-                                    <p className="text-slate-900 dark:text-[var(--app-text)]">08:00 PM</p>
+                            <motion.div
+                                initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+                                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                                className="fixed bottom-0 left-0 right-0 bg-white dark:bg-[var(--app-surface)] rounded-t-[3rem] p-8 pb-12 z-[1001] shadow-2xl max-w-md mx-auto"
+                            >
+                                <div className="w-12 h-1.5 bg-slate-100 dark:bg-[var(--app-surface-2)] rounded-full mx-auto mb-8" />
+                                <div className="flex justify-between items-start mb-6">
+                                    <div className="flex-1 min-w-0">
+                                        <h2 className="text-2xl font-black text-slate-900 dark:text-[var(--app-text)] mb-1 truncate">{selectedGarage.name}</h2>
+                                        <p className="text-blue-600 font-bold flex items-center gap-1 bg-blue-50 dark:bg-blue-950/40 w-fit px-3 py-1 rounded-full text-xs">
+                                            <MapPin className="w-3 h-3" />
+                                            {formatDistance(selectedGarage.distanceKm)} away
+                                        </p>
+                                    </div>
+                                    <button onClick={() => setSelectedGarage(null)} aria-label="Close" className="w-10 h-10 bg-slate-50 dark:bg-[var(--app-bg)] rounded-full flex items-center justify-center text-slate-400 dark:text-[var(--app-muted)]">
+                                        <X className="w-5 h-5" />
+                                    </button>
                                 </div>
-                                <div className="bg-slate-50 dark:bg-[var(--app-bg)] p-4 rounded-2xl">
-                                    <p className="text-slate-400 dark:text-[var(--app-muted)] text-xs mb-1">Rating</p>
-                                    <p className="text-slate-900 dark:text-[var(--app-text)] flex items-center justify-center gap-1">
-                                        <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                                        {selectedGarage.rating}
-                                    </p>
-                                </div>
-                            </div>
 
-                            <div className="flex gap-3">
-                                <button
-                                    onClick={() => {
-                                        const url = `https://www.google.com/maps/dir/?api=1&destination=${selectedGarage.lat},${selectedGarage.lng}`;
-                                        window.open(url, '_blank');
-                                    }}
-                                    className="flex-1 h-16 bg-slate-100 dark:bg-[var(--app-surface-2)] rounded-[1.25rem] text-slate-700 dark:text-[var(--app-text)] font-black flex items-center justify-center gap-3 active:scale-95 transition-transform"
-                                >
-                                    <Navigation className="w-5 h-5" />
-                                    DIRECTIONS
-                                </button>
-                                <a
-                                    href="tel:+919999999999"
-                                    className="flex-1 h-16 bg-green-600 rounded-[1.25rem] text-white font-black flex items-center justify-center gap-3 shadow-xl shadow-green-500/30 active:scale-95 transition-transform"
-                                >
-                                    <Phone className="w-5 h-5" />
-                                    CALL NOW
-                                </a>
-                            </div>
-                        </motion.div>
-                    </>
-                )}
+                                <GaragePhoto src={selectedGarage.photoUrl} name={selectedGarage.name} className="w-full h-44 rounded-[2rem] mb-6" />
+
+                                <div className="grid grid-cols-2 gap-4 mb-6 text-center text-sm font-bold">
+                                    <div className="bg-slate-50 dark:bg-[var(--app-bg)] p-4 rounded-2xl">
+                                        <p className="text-slate-400 dark:text-[var(--app-muted)] text-xs mb-1">Hours</p>
+                                        <p className={open.isOpen ? 'text-green-600' : 'text-slate-900 dark:text-[var(--app-text)]'}>{open.label}</p>
+                                    </div>
+                                    <div className="bg-slate-50 dark:bg-[var(--app-bg)] p-4 rounded-2xl">
+                                        <p className="text-slate-400 dark:text-[var(--app-muted)] text-xs mb-1">Rating</p>
+                                        <p className="text-slate-900 dark:text-[var(--app-text)] flex items-center justify-center gap-1">
+                                            {selectedGarage.reviews > 0 ? (
+                                                <><Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />{selectedGarage.rating.toFixed(1)} ({selectedGarage.reviews})</>
+                                            ) : 'New'}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => navigate(`/customer/garage/${selectedGarage.id}`)}
+                                        className="flex-1 h-16 bg-slate-100 dark:bg-[var(--app-surface-2)] rounded-[1.25rem] text-slate-700 dark:text-[var(--app-text)] font-black flex items-center justify-center gap-2 active:scale-95 transition-transform"
+                                    >
+                                        Details <ChevronRight className="w-5 h-5" />
+                                    </button>
+                                    {selectedGarage.phone ? (
+                                        <a
+                                            href={`tel:+91${selectedGarage.phone}`}
+                                            className="flex-1 h-16 bg-green-600 rounded-[1.25rem] text-white font-black flex items-center justify-center gap-3 shadow-xl shadow-green-500/30 active:scale-95 transition-transform"
+                                        >
+                                            <Phone className="w-5 h-5" /> Call
+                                        </a>
+                                    ) : (
+                                        <a
+                                            href={directionsUrl(selectedGarage)}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="flex-1 h-16 bg-blue-600 rounded-[1.25rem] text-white font-black flex items-center justify-center gap-3 active:scale-95 transition-transform"
+                                        >
+                                            <Navigation className="w-5 h-5" /> Directions
+                                        </a>
+                                    )}
+                                </div>
+                            </motion.div>
+                        </>
+                    );
+                })()}
             </AnimatePresence>
 
             {/* Logout Modal */}
             <AnimatePresence>
                 {showLogoutModal && (
-                    <div className="fixed inset-0 flex items-center justify-center p-6 z-[200]">
+                    <div className="fixed inset-0 flex items-center justify-center p-6 z-[1100]">
                         <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
+                            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                             className="fixed inset-0 bg-slate-900/40 backdrop-blur-md"
                             onClick={() => setShowLogoutModal(false)}
                         />
                         <motion.div
-                            initial={{ scale: 0.9, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.9, opacity: 0 }}
+                            initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
                             className="w-full max-w-sm bg-white dark:bg-[var(--app-surface)] rounded-[2.5rem] p-8 text-center relative z-10 shadow-2xl"
-                            onClick={(e) => e.stopPropagation()}
                         >
                             <div className="w-20 h-20 bg-red-50 dark:bg-red-950/40 text-red-500 rounded-3xl flex items-center justify-center mx-auto mb-6">
                                 <LogOut className="w-10 h-10" />
                             </div>
-                            <h2 className="text-2xl font-black text-slate-900 dark:text-[var(--app-text)] mb-2">Ready to Leave?</h2>
-                            <p className="text-slate-500 dark:text-[var(--app-muted)] font-medium mb-10 leading-relaxed">You will need to re-verify your phone number to login again.</p>
+                            <h2 className="text-2xl font-black text-slate-900 dark:text-[var(--app-text)] mb-2">Log out?</h2>
+                            <p className="text-slate-500 dark:text-[var(--app-muted)] font-medium mb-10 leading-relaxed">You'll need an OTP to sign in again.</p>
                             <div className="flex flex-col gap-3">
-                                <button
-                                    onClick={handleLogout}
-                                    className="w-full h-16 bg-red-600 text-white font-bold rounded-2xl shadow-xl shadow-red-200"
-                                >
-                                    Log out
-                                </button>
-                                <button
-                                    onClick={() => setShowLogoutModal(false)}
-                                    className="w-full h-16 bg-slate-50 dark:bg-[var(--app-bg)] text-slate-500 dark:text-[var(--app-muted)] font-bold rounded-2xl"
-                                >
-                                    Cancel
-                                </button>
+                                <button onClick={handleLogout} className="w-full h-16 bg-red-600 text-white font-bold rounded-2xl">Log out</button>
+                                <button onClick={() => setShowLogoutModal(false)} className="w-full h-16 bg-slate-50 dark:bg-[var(--app-bg)] text-slate-500 dark:text-[var(--app-muted)] font-bold rounded-2xl">Cancel</button>
                             </div>
                         </motion.div>
                     </div>
                 )}
             </AnimatePresence>
 
-            {/* Profile Slider Panel */}
+            {/* Menu panel */}
             <AnimatePresence>
                 {showProfilePanel && (
                     <>
                         <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40"
+                            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                            className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[1000]"
                             onClick={() => setShowProfilePanel(false)}
                         />
                         <motion.div
-                            initial={{ x: '100%' }}
-                            animate={{ x: 0 }}
-                            exit={{ x: '100%' }}
+                            initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
                             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                            className="fixed top-0 right-0 h-full w-80 bg-white dark:bg-[var(--app-surface)] shadow-2xl z-50 flex flex-col"
+                            className="fixed top-0 right-0 h-full w-80 max-w-[85vw] bg-white dark:bg-[var(--app-surface)] shadow-2xl z-[1001] flex flex-col"
                         >
-                            {/* Panel Header */}
-                            <div className="p-6 bg-blue-600 text-white">
+                            <div className="p-6 pt-safe bg-blue-600 text-white">
                                 <div className="flex items-center justify-end mb-4">
-                                    <button
-                                        onClick={() => setShowProfilePanel(false)}
-                                        className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center"
-                                    >
+                                    <button onClick={() => setShowProfilePanel(false)} aria-label="Close menu" className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
                                         <X className="w-4 h-4" />
                                     </button>
                                 </div>
@@ -710,195 +525,43 @@ export default function CustomerHome() {
                                     <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
                                         <User className="w-6 h-6" />
                                     </div>
-                                    <div>
-                                        <p className="font-bold">{customerName}</p>
-                                        <p className="text-blue-200 text-xs">Find a Mechanic</p>
+                                    <div className="min-w-0">
+                                        <p className="font-bold truncate">{customerName || 'Your account'}</p>
+                                        <p className="text-blue-200 text-xs">+91 {userData?.phoneNumber}</p>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Panel Options */}
                             <div className="flex-1 p-4 space-y-2">
-                                <button
-                                    onClick={() => {
-                                        setShowProfilePanel(false);
-                                        navigate('/customer/profile');
-                                    }}
-                                    className="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-slate-50 dark:hover:bg-[var(--app-bg)] transition-all group"
-                                >
-                                    <div className="w-12 h-12 bg-purple-50 dark:bg-purple-950/40 rounded-xl flex items-center justify-center text-purple-600">
-                                        <User className="w-5 h-5" />
-                                    </div>
-                                    <div className="flex-1 text-left">
-                                        <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">Profile</p>
-                                        <p className="text-slate-400 dark:text-[var(--app-muted)] text-xs">Your info & vehicle</p>
-                                    </div>
-                                    <ChevronRight className="w-5 h-5 text-slate-300 dark:text-slate-600 group-hover:text-purple-500" />
-                                </button>
-
-                                <button
-                                    onClick={() => {
-                                        setShowProfilePanel(false);
-                                        navigate('/customer/activity');
-                                    }}
-                                    className="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-slate-50 dark:hover:bg-[var(--app-bg)] transition-all group"
-                                >
-                                    <div className="w-12 h-12 bg-blue-50 dark:bg-blue-950/40 rounded-xl flex items-center justify-center text-blue-600">
-                                        <Clock className="w-5 h-5" />
-                                    </div>
-                                    <div className="flex-1 text-left">
-                                        <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">Activity</p>
-                                        <p className="text-slate-400 dark:text-[var(--app-muted)] text-xs">View your service history</p>
-                                    </div>
-                                    <ChevronRight className="w-5 h-5 text-slate-300 dark:text-slate-600 group-hover:text-blue-500" />
-                                </button>
-
-                                <button
-                                    onClick={() => {
-                                        setShowProfilePanel(false);
-                                        navigate('/customer/support');
-                                    }}
-                                    className="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-slate-50 dark:hover:bg-[var(--app-bg)] transition-all group"
-                                >
-                                    <div className="w-12 h-12 bg-green-50 dark:bg-green-950/40 rounded-xl flex items-center justify-center text-green-600">
-                                        <Headphones className="w-5 h-5" />
-                                    </div>
-                                    <div className="flex-1 text-left">
-                                        <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">Support</p>
-                                        <p className="text-slate-400 dark:text-[var(--app-muted)] text-xs">Get help & contact us</p>
-                                    </div>
-                                    <ChevronRight className="w-5 h-5 text-slate-300 dark:text-slate-600 group-hover:text-green-500" />
-                                </button>
+                                {[
+                                    { to: '/customer/profile', label: 'Profile', sub: 'Your info & vehicle', Icon: User, tint: 'bg-purple-50 dark:bg-purple-950/40 text-purple-600' },
+                                    { to: '/customer/activity', label: 'Activity', sub: 'Service history & invoices', Icon: Clock, tint: 'bg-blue-50 dark:bg-blue-950/40 text-blue-600' },
+                                    { to: '/customer/support', label: 'Support', sub: 'Get help & contact us', Icon: Headphones, tint: 'bg-green-50 dark:bg-green-950/40 text-green-600' },
+                                ].map(({ to, label, sub, Icon, tint }) => (
+                                    <button
+                                        key={to}
+                                        onClick={() => { setShowProfilePanel(false); navigate(to); }}
+                                        className="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-slate-50 dark:hover:bg-[var(--app-bg)] transition-all"
+                                    >
+                                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${tint}`}>
+                                            <Icon className="w-5 h-5" />
+                                        </div>
+                                        <div className="flex-1 text-left">
+                                            <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">{label}</p>
+                                            <p className="text-slate-400 dark:text-[var(--app-muted)] text-xs">{sub}</p>
+                                        </div>
+                                        <ChevronRight className="w-5 h-5 text-slate-300 dark:text-slate-600" />
+                                    </button>
+                                ))}
                             </div>
 
-                            {/* Logout Button */}
-                            <div className="p-4 border-t border-slate-100 dark:border-[var(--app-border)]">
+                            <div className="p-4 pb-safe border-t border-slate-100 dark:border-[var(--app-border)]">
                                 <button
-                                    onClick={() => {
-                                        setShowProfilePanel(false);
-                                        setShowLogoutModal(true);
-                                    }}
-                                    className="w-full flex items-center gap-4 p-4 rounded-2xl bg-red-50 dark:bg-red-950/40 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/40 transition-all"
+                                    onClick={() => { setShowProfilePanel(false); setShowLogoutModal(true); }}
+                                    className="w-full flex items-center gap-4 p-4 rounded-2xl bg-red-50 dark:bg-red-950/40 text-red-600"
                                 >
                                     <LogOut className="w-5 h-5" />
-                                    <span className="font-bold">Logout</span>
-                                </button>
-                            </div>
-                        </motion.div>
-                    </>
-                )}
-
-                {/* Filter Modal */}
-                {showFilterModal && (
-                    <>
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50"
-                            onClick={() => setShowFilterModal(false)}
-                        />
-                        <motion.div
-                            initial={{ y: '100%' }}
-                            animate={{ y: 0 }}
-                            exit={{ y: '100%' }}
-                            className="fixed bottom-0 left-0 right-0 bg-white dark:bg-[var(--app-surface)] rounded-t-3xl z-50 p-6 pb-10 max-h-[80vh] overflow-y-auto"
-                        >
-                            <div className="flex items-center justify-between mb-6">
-                                <h2 className="text-xl font-bold text-slate-900 dark:text-[var(--app-text)]">Filters</h2>
-                                <button onClick={() => setShowFilterModal(false)}>
-                                    <X className="w-6 h-6 text-slate-400 dark:text-[var(--app-muted)]" />
-                                </button>
-                            </div>
-
-                            {/* Sort By */}
-                            <div className="mb-6">
-                                <h3 className="text-sm font-semibold text-slate-700 dark:text-[var(--app-text)] mb-3">Sort By</h3>
-                                <div className="grid grid-cols-2 gap-2">
-                                    {[
-                                        { value: 'distance', label: 'Distance', icon: '📍' },
-                                        { value: 'rating', label: 'Rating', icon: '⭐' },
-                                        { value: 'services', label: 'Services', icon: '🔧' },
-                                    ].map(option => (
-                                        <button
-                                            key={option.value}
-                                            onClick={() => setSortBy(option.value as any)}
-                                            className={`p-3 rounded-xl border-2 text-left transition-all ${sortBy === option.value
-                                                ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40'
-                                                : 'border-slate-100 dark:border-[var(--app-border)] bg-white dark:bg-[var(--app-surface)]'
-                                                }`}
-                                        >
-                                            <span className="text-lg">{option.icon}</span>
-                                            <p className={`text-sm font-semibold mt-1 ${sortBy === option.value ? 'text-blue-600' : 'text-slate-700 dark:text-[var(--app-text)]'
-                                                }`}>{option.label}</p>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Open Now Toggle */}
-                            <div className="mb-6">
-                                <button
-                                    onClick={() => setShowOpenOnly(!showOpenOnly)}
-                                    className={`w-full p-4 rounded-xl border-2 flex items-center justify-between transition-all ${showOpenOnly
-                                        ? 'border-green-500 bg-green-50 dark:bg-green-950/40'
-                                        : 'border-slate-100 dark:border-[var(--app-border)] bg-white dark:bg-[var(--app-surface)]'
-                                        }`}
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <div className={`w-3 h-3 rounded-full ${showOpenOnly ? 'bg-green-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-700'}`} />
-                                        <span className={`font-semibold ${showOpenOnly ? 'text-green-600' : 'text-slate-700 dark:text-[var(--app-text)]'}`}>
-                                            Open Now Only
-                                        </span>
-                                    </div>
-                                    <div className={`w-12 h-7 rounded-full transition-all ${showOpenOnly ? 'bg-green-500' : 'bg-slate-200 dark:bg-[var(--app-surface-2)]'}`}>
-                                        <div className={`w-5 h-5 bg-white dark:bg-[var(--app-surface)] rounded-full shadow-md transition-all mt-1 ${showOpenOnly ? 'ml-6' : 'ml-1'}`} />
-                                    </div>
-                                </button>
-                            </div>
-
-                            {/* Minimum Rating */}
-                            <div className="mb-8">
-                                <h3 className="text-sm font-semibold text-slate-700 dark:text-[var(--app-text)] mb-3">Minimum Rating</h3>
-                                <div className="flex gap-2">
-                                    {[0, 3, 3.5, 4, 4.5].map(rating => (
-                                        <button
-                                            key={rating}
-                                            onClick={() => setMinRating(rating)}
-                                            className={`flex-1 p-3 rounded-xl border-2 text-center transition-all ${minRating === rating
-                                                ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/40'
-                                                : 'border-slate-100 dark:border-[var(--app-border)] bg-white dark:bg-[var(--app-surface)]'
-                                                }`}
-                                        >
-                                            <div className="flex items-center justify-center gap-1">
-                                                {rating > 0 && <Star className="w-3 h-3 fill-amber-400 text-amber-400" />}
-                                                <span className={`text-sm font-semibold ${minRating === rating ? 'text-amber-600' : 'text-slate-600 dark:text-[var(--app-muted)]'
-                                                    }`}>
-                                                    {rating === 0 ? 'Any' : `${rating}+`}
-                                                </span>
-                                            </div>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Action Buttons */}
-                            <div className="flex gap-3">
-                                <button
-                                    onClick={() => {
-                                        setSortBy('distance');
-                                        setShowOpenOnly(false);
-                                        setMinRating(0);
-                                    }}
-                                    className="flex-1 py-4 rounded-xl border-2 border-slate-200 dark:border-[var(--app-border)] text-slate-600 dark:text-[var(--app-muted)] font-bold"
-                                >
-                                    Reset
-                                </button>
-                                <button
-                                    onClick={() => setShowFilterModal(false)}
-                                    className="flex-1 py-4 rounded-xl bg-blue-600 text-white font-bold"
-                                >
-                                    Apply ({sortedGarages.length} results)
+                                    <span className="font-bold">Log out</span>
                                 </button>
                             </div>
                         </motion.div>
@@ -906,85 +569,89 @@ export default function CustomerHome() {
                 )}
             </AnimatePresence>
 
-            {/* Service Approval Modal */}
+            {/* Filters */}
             <AnimatePresence>
-                {pendingApprovals.length > 0 && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-end justify-center"
-                    >
+                {showFilterModal && (
+                    <>
                         <motion.div
-                            initial={{ y: '100%' }}
-                            animate={{ y: 0 }}
-                            exit={{ y: '100%' }}
-                            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                            className="bg-white dark:bg-[var(--app-surface)] rounded-t-3xl w-full max-w-md p-6 pb-10"
+                            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[1000]"
+                            onClick={() => setShowFilterModal(false)}
+                        />
+                        <motion.div
+                            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+                            className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white dark:bg-[var(--app-surface)] rounded-t-3xl z-[1001] p-6 pb-10 max-h-[80vh] overflow-y-auto"
                         >
-                            <div className="flex items-center gap-3 mb-6">
-                                <div className="w-12 h-12 bg-blue-50 dark:bg-blue-950/40 rounded-2xl flex items-center justify-center">
-                                    <Shield className="w-6 h-6 text-blue-600" />
-                                </div>
-                                <div>
-                                    <h3 className="text-xl font-black text-slate-900 dark:text-[var(--app-text)]">Service Verification</h3>
-                                    <p className="text-slate-400 dark:text-[var(--app-muted)] text-sm">Confirm this service is accurate</p>
+                            <div className="flex items-center justify-between mb-6">
+                                <h2 className="text-xl font-bold text-slate-900 dark:text-[var(--app-text)]">Filters</h2>
+                                <button onClick={() => setShowFilterModal(false)} aria-label="Close filters">
+                                    <X className="w-6 h-6 text-slate-400 dark:text-[var(--app-muted)]" />
+                                </button>
+                            </div>
+
+                            <div className="mb-6">
+                                <h3 className="text-sm font-semibold text-slate-700 dark:text-[var(--app-text)] mb-3">Sort by</h3>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {SORT_OPTIONS.map((option) => (
+                                        <button
+                                            key={option.value}
+                                            onClick={() => setSortBy(option.value)}
+                                            className={`p-3 rounded-xl border-2 text-sm font-semibold transition-all ${sortBy === option.value
+                                                ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-600'
+                                                : 'border-slate-100 dark:border-[var(--app-border)] text-slate-700 dark:text-[var(--app-text)]'}`}
+                                        >
+                                            {option.label}
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
 
-                            <div className="space-y-4">
-                                {pendingApprovals.map(service => (
-                                    <div key={service._id} className="bg-slate-50 dark:bg-[var(--app-bg)] rounded-2xl p-4">
-                                        <div className="flex items-center gap-3 mb-3">
-                                            <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/40 rounded-xl flex items-center justify-center">
-                                                <Wrench className="w-5 h-5 text-blue-600" />
-                                            </div>
-                                            <div className="flex-1">
-                                                <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">{service.garageName}</p>
-                                                <p className="text-slate-500 dark:text-[var(--app-muted)] text-sm">{service.description}</p>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center justify-between mb-4 px-2">
-                                            <div>
-                                                <p className="text-xs text-slate-400 dark:text-[var(--app-muted)]">Service Amount</p>
-                                                <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">Rs.{service.amount}</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-xs text-slate-400 dark:text-[var(--app-muted)]">Platform Fee</p>
-                                                <p className="font-bold text-slate-500 dark:text-[var(--app-muted)]">Rs.{service.platformFee}</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-xs text-slate-400 dark:text-[var(--app-muted)]">Total</p>
-                                                <p className="font-bold text-blue-600">Rs.{(service.amount + service.platformFee).toFixed(2)}</p>
-                                            </div>
-                                        </div>
-                                        <div className="flex gap-3">
-                                            <button
-                                                onClick={() => handleRejectService(service._id)}
-                                                disabled={approvingId === service._id}
-                                                className="flex-1 py-3 rounded-xl bg-red-50 dark:bg-red-950/40 text-red-600 font-bold flex items-center justify-center gap-2 disabled:opacity-50"
-                                            >
-                                                <XCircle className="w-4 h-4" />
-                                                Reject
-                                            </button>
-                                            <button
-                                                onClick={() => handleApproveService(service._id)}
-                                                disabled={approvingId === service._id}
-                                                className="flex-1 py-3 rounded-xl bg-green-600 text-white font-bold flex items-center justify-center gap-2 disabled:opacity-50"
-                                            >
-                                                {approvingId === service._id ? (
-                                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                                ) : (
-                                                    <Check className="w-5 h-5" />
-                                                )}
-                                                Approve
-                                            </button>
-                                        </div>
+                            <div className="mb-6">
+                                <button
+                                    onClick={() => setShowOpenOnly(!showOpenOnly)}
+                                    role="switch"
+                                    aria-checked={showOpenOnly}
+                                    className={`w-full p-4 rounded-xl border-2 flex items-center justify-between transition-all ${showOpenOnly
+                                        ? 'border-green-500 bg-green-50 dark:bg-green-950/40'
+                                        : 'border-slate-100 dark:border-[var(--app-border)]'}`}
+                                >
+                                    <span className={`font-semibold ${showOpenOnly ? 'text-green-600' : 'text-slate-700 dark:text-[var(--app-text)]'}`}>Open now only</span>
+                                    <div className={`w-12 h-7 rounded-full transition-all ${showOpenOnly ? 'bg-green-500' : 'bg-slate-200 dark:bg-[var(--app-surface-2)]'}`}>
+                                        <div className={`w-5 h-5 bg-white rounded-full shadow-md transition-all mt-1 ${showOpenOnly ? 'ml-6' : 'ml-1'}`} />
                                     </div>
-                                ))}
+                                </button>
+                            </div>
+
+                            <div className="mb-8">
+                                <h3 className="text-sm font-semibold text-slate-700 dark:text-[var(--app-text)] mb-3">Minimum rating</h3>
+                                <div className="flex gap-2">
+                                    {[0, 3, 3.5, 4, 4.5].map((rating) => (
+                                        <button
+                                            key={rating}
+                                            onClick={() => setMinRating(rating)}
+                                            className={`flex-1 p-3 rounded-xl border-2 text-center text-sm font-semibold transition-all ${minRating === rating
+                                                ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/40 text-amber-600'
+                                                : 'border-slate-100 dark:border-[var(--app-border)] text-slate-600 dark:text-[var(--app-muted)]'}`}
+                                        >
+                                            {rating === 0 ? 'Any' : `${rating}+`}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3">
+                                <button onClick={resetFilters} className="flex-1 py-4 rounded-xl border-2 border-slate-200 dark:border-[var(--app-border)] text-slate-600 dark:text-[var(--app-muted)] font-bold">
+                                    Reset
+                                </button>
+                                <button
+                                    onClick={() => { setVisibleCount(PAGE_SIZE); setShowFilterModal(false); }}
+                                    className="flex-1 py-4 rounded-xl bg-blue-600 text-white font-bold"
+                                >
+                                    Show {visibleGarages.length} result{visibleGarages.length === 1 ? '' : 's'}
+                                </button>
                             </div>
                         </motion.div>
-                    </motion.div>
+                    </>
                 )}
             </AnimatePresence>
         </div>

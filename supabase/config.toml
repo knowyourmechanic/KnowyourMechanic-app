@@ -36,3 +36,7 @@ file_size_limit = "50MiB"
 
 [functions.msg91-sms]
 verify_jwt = false
+
+# Razorpay calls this directly (HMAC-signed, no Supabase JWT).
+[functions.razorpay-webhook]
+verify_jwt = false

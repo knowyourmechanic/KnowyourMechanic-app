@@ -4,20 +4,44 @@ import { Repeat, X, Check, Loader2, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ROLE_META, routeForRole } from '../lib/roles';
-import type { AppRole } from '../lib/data';
+import { addMyRole, type AppRole } from '../lib/data';
 
 // Lets a user who holds more than one role switch dashboards without logging
-// out. Renders nothing for single-role users. Drop it into any settings screen.
+// out, and lets a customer number register a garage (or a garage owner use the
+// customer side) without a second account. Drop it into any settings screen.
 // variant 'card' suits light settings screens; 'nav' suits the dark staff
 // consoles (admin/support sidebars). Both open the same picker sheet.
 export default function RoleSwitcher({ variant = 'card' }: { variant?: 'card' | 'nav' }) {
-    const { userData, availableRoles, switchRole } = useAuth();
+    const { userData, availableRoles, switchRole, refreshRoles } = useAuth();
     const navigate = useNavigate();
     const [open, setOpen] = useState(false);
     const [busy, setBusy] = useState<AppRole | null>(null);
+    const [error, setError] = useState('');
 
-    if (!userData || availableRoles.length <= 1) return null;
+    if (!userData) return null;
     const current = userData.role;
+    // Self-service roles this number could add (privileged roles are admin-granted).
+    const addable = (['garage', 'customer'] as const).filter(
+        (r) => !availableRoles.includes(r) && (current === 'customer' || current === 'garage'),
+    );
+    if (availableRoles.length <= 1 && addable.length === 0) return null;
+
+    const addRole = async (role: 'customer' | 'garage') => {
+        setBusy(role);
+        setError('');
+        try {
+            await addMyRole(role);
+            await refreshRoles();
+            switchRole(role);
+            const path = await routeForRole(role, userData._id);
+            setOpen(false);
+            navigate(path);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'Could not add that role.');
+        } finally {
+            setBusy(null);
+        }
+    };
 
     const choose = async (role: AppRole) => {
         if (role === current) { setOpen(false); return; }
@@ -51,8 +75,10 @@ export default function RoleSwitcher({ variant = 'card' }: { variant?: 'card' | 
                         <Repeat className="w-5 h-5" />
                     </div>
                     <div className="flex-1 text-left">
-                        <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">Switch role</p>
-                        <p className="text-slate-500 dark:text-[var(--app-muted)] text-sm">Currently: {ROLE_META[current]?.label ?? current}</p>
+                        <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">{availableRoles.length > 1 ? 'Switch role' : addable[0] === 'garage' ? 'Own a garage?' : 'Use KYM as a customer'}</p>
+                        <p className="text-slate-500 dark:text-[var(--app-muted)] text-sm">
+                            {availableRoles.length > 1 ? `Currently: ${ROLE_META[current]?.label ?? current}` : addable[0] === 'garage' ? 'List it on KnowYourMechanic with this number' : 'Find garages & see your service history'}
+                        </p>
                     </div>
                     <ChevronRight className="w-5 h-5 text-slate-300 dark:text-slate-600" />
                 </button>
@@ -62,7 +88,7 @@ export default function RoleSwitcher({ variant = 'card' }: { variant?: 'card' | 
                 {open && (
                     <motion.div
                         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center"
+                        className="fixed inset-0 z-[1000] bg-black/40 flex items-end sm:items-center justify-center"
                         onClick={() => setOpen(false)}
                     >
                         <motion.div
@@ -72,7 +98,7 @@ export default function RoleSwitcher({ variant = 'card' }: { variant?: 'card' | 
                             onClick={(e) => e.stopPropagation()}
                         >
                             <div className="flex items-center justify-between mb-5">
-                                <h2 className="text-xl font-black text-slate-900 dark:text-[var(--app-text)]">Switch role</h2>
+                                <h2 className="text-xl font-black text-slate-900 dark:text-[var(--app-text)]">Your roles</h2>
                                 <button onClick={() => setOpen(false)} className="text-slate-400 dark:text-[var(--app-muted)] active:scale-90 transition-transform">
                                     <X className="w-6 h-6" />
                                 </button>
@@ -108,6 +134,28 @@ export default function RoleSwitcher({ variant = 'card' }: { variant?: 'card' | 
                                         </button>
                                     );
                                 })}
+                                {addable.map((role) => {
+                                    const meta = ROLE_META[role];
+                                    const Icon = meta.Icon;
+                                    return (
+                                        <button
+                                            key={`add-${role}`}
+                                            onClick={() => addRole(role)}
+                                            disabled={busy !== null}
+                                            className="w-full rounded-2xl p-4 flex items-center gap-4 border border-dashed border-blue-300 dark:border-blue-800/60 text-left"
+                                        >
+                                            <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center text-white">
+                                                <Icon className="w-6 h-6" />
+                                            </div>
+                                            <div className="flex-1">
+                                                <h3 className="font-bold text-slate-900 dark:text-[var(--app-text)]">{role === 'garage' ? 'Register your garage' : 'Add customer access'}</h3>
+                                                <p className="text-slate-500 dark:text-[var(--app-muted)] text-sm">Same number, no new account</p>
+                                            </div>
+                                            {busy === role ? <Loader2 className="w-5 h-5 animate-spin text-blue-600" /> : <ChevronRight className="w-5 h-5 text-blue-600" />}
+                                        </button>
+                                    );
+                                })}
+                                {error && <p className="text-sm text-red-600 text-center">{error}</p>}
                             </div>
                         </motion.div>
                     </motion.div>

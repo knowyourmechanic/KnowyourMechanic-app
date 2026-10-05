@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Settings, Plus, Star, LogOut, Wrench, User,
-    X, Headphones, ChevronRight, Calendar, Check, XCircle, Edit
+    X, Headphones, ChevronRight, Edit
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -11,52 +11,45 @@ import { getMyGarage, getGarageServiceRecords } from '../../lib/data';
 import AddServiceModal from '../../components/AddServiceModal';
 import FeeSettlementCard from '../../components/FeeSettlementCard';
 import { DashboardSkeleton } from '../../components/Loaders';
-
-interface Booking {
-    _id: string;
-    customerId: {
-        phoneNumber: string;
-    };
-    serviceId: {
-        name: string;
-        price: number;
-        duration: number;
-    };
-    scheduledDate: string;
-    scheduledTime: string;
-    status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'cancelled';
-    totalPrice: number;
-    notes?: string;
-    vehicleInfo?: {
-        make: string;
-        model: string;
-        year: number;
-    };
-}
+import { getOpenStatus } from '../../lib/hours';
 
 interface ServiceRecord {
     _id: string;
     customerPhone: string;
+    vehicleNumber: string | null;
     description: string;
     amount: number;
     platformFee: number;
-    garageEarnings: number;
-    paymentMethod: string;   // 'qr' (UPI) | 'cash'
     status: string;
-    isReliable: boolean;
+    invoiceNumber: string | null;
     createdAt: string;
 }
+
+// In-flight records can be resumed (OTP / payment) from the list.
+const STATUS_META: Record<string, { label: string; tone: string }> = {
+    pending_otp: { label: 'Awaiting OTP', tone: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300' },
+    otp_verified: { label: 'Collect payment', tone: 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300' },
+    payment_pending: { label: 'Collect payment', tone: 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300' },
+    completed: { label: 'Completed', tone: 'bg-green-50 dark:bg-green-950/40 text-green-700 dark:text-green-300' },
+    cancelled: { label: 'Cancelled', tone: 'bg-slate-100 dark:bg-[var(--app-surface-2)] text-slate-500' },
+};
+const isResumable = (status: string) => status === 'pending_otp' || status === 'otp_verified';
+
 
 
 
 export default function GarageDashboard() {
-    const [bookings, setBookings] = useState<Booking[]>([]);
     const [services, setServices] = useState<ServiceRecord[]>([]);
     const [showAllServices, setShowAllServices] = useState(false);
     const [showProfilePanel, setShowProfilePanel] = useState(false);
     const [loading, setLoading] = useState(true);
-    const [stats, setStats] = useState({ pending: 0, completed: 0, rating: 0, totalReviews: 0 });
+    const [stats, setStats] = useState({ pending: 0, completed: 0, todayEarnings: 0, rating: 0, totalReviews: 0 });
     const [showAddService, setShowAddService] = useState(false);
+    const [resumeRecord, setResumeRecord] = useState<ServiceRecord | null>(null);
+    const resume = useMemo(
+        () => (resumeRecord ? { id: resumeRecord._id, amount: resumeRecord.amount, status: resumeRecord.status } : null),
+        [resumeRecord],
+    );
     const [garagePhotoUrl, setGaragePhotoUrl] = useState('');
     const [garageName, setGarageName] = useState('');
     const [serviceHours, setServiceHours] = useState('9:00 AM - 8:00 PM');
@@ -85,7 +78,6 @@ export default function GarageDashboard() {
                 if (garage.photo_url) setGaragePhotoUrl(garage.photo_url);
                 if (garage.service_hours) setServiceHours(garage.service_hours);
                 if (garage.working_days && garage.working_days.length) setWorkingDays(garage.working_days);
-                setBookings([]);
                 await loadServices(garage.id, Number(garage.rating || 0), garage.total_reviews || 0);
             }
         } catch (error) {
@@ -100,18 +92,24 @@ export default function GarageDashboard() {
         const mapped: ServiceRecord[] = records.map((r) => ({
             _id: r.id,
             customerPhone: r.customer_phone,
+            vehicleNumber: r.vehicle_number,
             description: r.description,
             amount: Number(r.amount),
             platformFee: Number(r.platform_fee),
-            garageEarnings: Number(r.garage_earnings),
-            paymentMethod: (r.payment_method as any) || 'cash',
             status: r.status,
-            isReliable: r.is_reliable,
+            invoiceNumber: r.invoice_number,
             createdAt: r.created_at,
         }));
         setServices(mapped);
-        const pending = mapped.filter((m) => m.status === 'pending_otp').length;
-        setStats({ pending, completed: mapped.length, rating, totalReviews });
+        const today = new Date().toDateString();
+        const completed = mapped.filter((m) => m.status === 'completed');
+        setStats({
+            pending: mapped.filter((m) => isResumable(m.status)).length,
+            completed: completed.length,
+            todayEarnings: completed.filter((m) => new Date(m.createdAt).toDateString() === today).reduce((sum, m) => sum + m.amount, 0),
+            rating,
+            totalReviews,
+        });
     };
 
     // Called by the add-service modal after creating a record.
@@ -125,42 +123,7 @@ export default function GarageDashboard() {
         navigate('/auth');
     };
 
-    // Check if garage is currently open
-    const isGarageOpen = () => {
-        const now = new Date();
-        const currentDay = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][now.getDay()];
-
-        if (!workingDays.includes(currentDay)) return false;
-
-        try {
-            const [openStr, closeStr] = serviceHours.split(' - ');
-            const parseTime = (str: string) => {
-                const [time, period] = str.trim().split(' ');
-                let [hours, minutes] = time.split(':').map(Number);
-                if (period === 'PM' && hours !== 12) hours += 12;
-                if (period === 'AM' && hours === 12) hours = 0;
-                return hours * 60 + minutes;
-            };
-
-            const currentMinutes = now.getHours() * 60 + now.getMinutes();
-            const openMinutes = parseTime(openStr);
-            const closeMinutes = parseTime(closeStr);
-
-            // Overnight hours wrap past midnight (close < open).
-            if (closeMinutes <= openMinutes) {
-                return currentMinutes >= openMinutes || currentMinutes < closeMinutes;
-            }
-            return currentMinutes >= openMinutes && currentMinutes < closeMinutes;
-        } catch {
-            return true; // Default to open if parsing fails
-        }
-    };
-
-    // Booking flow is retired in the Supabase model; kept as a no-op so the
-    // legacy booking UI (which no longer receives data) still compiles.
-    const handleBookingStatus = async (_bookingId: string, _status: 'accepted' | 'rejected') => {
-        /* no-op */
-    };
+    const openNow = getOpenStatus(serviceHours, workingDays).isOpen;
 
     if (loading) {
         return <DashboardSkeleton />;
@@ -195,7 +158,7 @@ export default function GarageDashboard() {
                         {garageName || (userData as any)?.name || 'Your Garage'}
                     </h1>
                     <div className="flex items-center gap-3">
-                        {isGarageOpen() ? (
+                        {openNow ? (
                             <div className="px-3 py-1 rounded-full bg-green-500/20 backdrop-blur-sm border border-green-500/30 text-green-400 text-xs font-bold uppercase tracking-wider flex items-center gap-2">
                                 <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
                                 Open Now
@@ -318,7 +281,7 @@ export default function GarageDashboard() {
                             <Wrench className="w-5 h-5" />
                         </div>
                         <p className="text-2xl font-black text-slate-900 dark:text-[var(--app-text)]">{stats.completed}</p>
-                        <p className="text-slate-400 dark:text-[var(--app-muted)] text-[10px] font-bold uppercase">Total Services</p>
+                        <p className="text-slate-400 dark:text-[var(--app-muted)] text-[10px] font-bold uppercase">Completed · ₹{stats.todayEarnings.toLocaleString('en-IN')} today</p>
                     </div>
                     <div className="bg-white dark:bg-[var(--app-surface)] rounded-2xl border border-slate-100 dark:border-[var(--app-border)] p-4 flex flex-col items-center">
                         <div className="w-10 h-10 bg-amber-50 dark:bg-amber-950/40 rounded-xl flex items-center justify-center text-amber-500 mb-2">
@@ -343,60 +306,6 @@ export default function GarageDashboard() {
                     </button>
                 </div>
 
-                {/* Pending Bookings */}
-                {bookings.filter(b => b.status === 'pending').length > 0 && (
-                    <div className="mb-6">
-                        <div className="mb-3">
-                            <h4 className="text-sm font-black text-slate-400 dark:text-[var(--app-muted)] uppercase tracking-[0.15em]">Pending Bookings</h4>
-                        </div>
-                        <div className="space-y-3">
-                            {bookings.filter(b => b.status === 'pending').map((booking) => (
-                                <motion.div
-                                    key={booking._id}
-                                    initial={{ opacity: 0, y: 10 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    className="premium-card p-4"
-                                >
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex-1">
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <Calendar className="w-4 h-4 text-blue-600" />
-                                                <span className="font-bold text-sm">
-                                                    {booking.serviceId?.name || 'Service'}
-                                                </span>
-                                            </div>
-                                            <p className="text-xs text-slate-500 dark:text-[var(--app-muted)]">
-                                                {booking.customerId?.phoneNumber || 'Customer'} ·
-                                                {new Date(booking.scheduledDate).toLocaleDateString()} at {booking.scheduledTime}
-                                            </p>
-                                            {booking.notes && (
-                                                <p className="text-xs text-slate-400 dark:text-[var(--app-muted)] mt-1 italic">"{booking.notes}"</p>
-                                            )}
-                                            <p className="text-sm font-bold text-blue-600 mt-1">₹{booking.totalPrice}</p>
-                                        </div>
-                                        <div className="flex gap-2 ml-3">
-                                            <button
-                                                onClick={() => handleBookingStatus(booking._id, 'accepted')}
-                                                className="p-2 bg-green-50 dark:bg-green-950/40 text-green-600 rounded-xl hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors"
-                                                title="Accept"
-                                            >
-                                                <Check className="w-4 h-4" />
-                                            </button>
-                                            <button
-                                                onClick={() => handleBookingStatus(booking._id, 'rejected')}
-                                                className="p-2 bg-red-50 dark:bg-red-950/40 text-red-500 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
-                                                title="Reject"
-                                            >
-                                                <XCircle className="w-4 h-4" />
-                                            </button>
-                                        </div>
-                                    </div>
-                                </motion.div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
                 {/* Recent Services */}
                 {services.length > 0 && (
                     <div className="mb-6">
@@ -404,33 +313,47 @@ export default function GarageDashboard() {
                             <h4 className="text-sm font-black text-slate-400 dark:text-[var(--app-muted)] uppercase tracking-[0.15em]">Recent Services</h4>
                         </div>
                         <div className="space-y-3">
-                            {(showAllServices ? services : services.slice(0, 2)).map((service) => (
-                                <div key={service._id} className="bg-white dark:bg-[var(--app-surface)] border border-slate-100 dark:border-[var(--app-border)] rounded-2xl p-4 shadow-sm">
-                                    <div className="flex items-start justify-between mb-2">
-                                        <div className="flex-1">
-                                            <p className="font-bold text-slate-900 dark:text-[var(--app-text)] text-sm">{service.description}</p>
-                                            <p className="text-slate-400 dark:text-[var(--app-muted)] text-xs">{service.customerPhone}</p>
+                            {(showAllServices ? services : services.slice(0, 3)).map((service) => {
+                                const meta = STATUS_META[service.status] ?? { label: service.status, tone: 'bg-slate-100 text-slate-500' };
+                                const resumable = isResumable(service.status);
+                                return (
+                                    <button
+                                        key={service._id}
+                                        type="button"
+                                        disabled={!resumable}
+                                        onClick={() => { setResumeRecord(service); setShowAddService(true); }}
+                                        className={`w-full text-left bg-white dark:bg-[var(--app-surface)] border rounded-2xl p-4 shadow-sm ${resumable ? 'border-amber-200 dark:border-amber-800/50 active:scale-[0.99] transition-transform' : 'border-slate-100 dark:border-[var(--app-border)]'}`}
+                                    >
+                                        <div className="flex items-start justify-between gap-3 mb-2">
+                                            <div className="flex-1 min-w-0">
+                                                <p className="font-bold text-slate-900 dark:text-[var(--app-text)] text-sm truncate">{service.description}</p>
+                                                <p className="text-slate-400 dark:text-[var(--app-muted)] text-xs">
+                                                    {service.vehicleNumber ? `${service.vehicleNumber} · ` : ''}+91 {service.customerPhone}
+                                                </p>
+                                            </div>
+                                            <div className="text-right shrink-0">
+                                                <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">₹{service.amount.toLocaleString('en-IN')}</p>
+                                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${meta.tone}`}>{meta.label}</span>
+                                            </div>
                                         </div>
-                                        <div className="text-right">
-                                            <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">₹{service.garageEarnings}</p>
-                                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${service.paymentMethod === 'qr' ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600' : 'bg-amber-50 dark:bg-amber-950/40 text-amber-600'}`}>
-                                                {service.paymentMethod === 'qr' ? 'UPI' : 'Cash'}
+                                        <div className="flex items-center justify-between text-[10px]">
+                                            <span className="text-slate-300 dark:text-slate-600">
+                                                {new Date(service.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                                             </span>
+                                            {resumable && <span className="font-bold text-blue-600">Tap to continue →</span>}
+                                            {!resumable && service.invoiceNumber && <span className="font-mono text-slate-400">{service.invoiceNumber}</span>}
                                         </div>
-                                    </div>
-                                    <p className="text-slate-300 dark:text-slate-600 text-[10px]">
-                                        {new Date(service.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                                    </p>
-                                </div>
-                            ))}
+                                    </button>
+                                );
+                            })}
                         </div>
-                        {services.length > 2 && (
-                            <p
+                        {services.length > 3 && (
+                            <button
                                 onClick={() => setShowAllServices(!showAllServices)}
-                                className="text-blue-600 text-sm font-medium underline text-center mt-4 cursor-pointer"
+                                className="w-full text-blue-600 text-sm font-bold text-center mt-4 py-2"
                             >
-                                {showAllServices ? 'Show Less' : 'See More'}
-                            </p>
+                                {showAllServices ? 'Show less' : `Show all ${services.length}`}
+                            </button>
                         )}
                     </div>
                 )}
@@ -439,10 +362,16 @@ export default function GarageDashboard() {
                 <AddServiceModal
                     isOpen={showAddService}
                     garageId={garageId}
-                    onClose={() => setShowAddService(false)}
+                    resume={resume}
+                    onClose={() => {
+                        setShowAddService(false);
+                        setResumeRecord(null);
+                        fetchServices(); // a record may have been created / advanced
+                    }}
                     onSuccess={() => {
                         setShowAddService(false);
-                        fetchServices(); // Refresh services list
+                        setResumeRecord(null);
+                        fetchServices();
                     }}
                 />
             </div>

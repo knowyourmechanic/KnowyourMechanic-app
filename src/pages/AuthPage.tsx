@@ -22,14 +22,14 @@ export default function AuthPage() {
     const [linkedProfile, setLinkedProfile] = useState<{ id: string; auth_user_id: string; phone_number: string; role: AppRole } | null>(null);
 
     const navigate = useNavigate();
-    const { setUserData, setUser } = useAuth();
+    const { setUserData, setUser, refreshRoles } = useAuth();
 
     // Sets the active-role userData and routes to the matching home screen.
     const enterAsRole = async (role: AppRole, profile: { id: string; auth_user_id: string; phone_number: string }) => {
         const userData = { _id: profile.id, firebaseUid: profile.auth_user_id, phoneNumber: profile.phone_number, role };
         setUserData(userData);
         localStorage.setItem('userRole', role);
-        localStorage.setItem('userData', JSON.stringify(userData));
+        refreshRoles().catch(() => {});
         navigate(await routeForRole(role, profile.id));
     };
 

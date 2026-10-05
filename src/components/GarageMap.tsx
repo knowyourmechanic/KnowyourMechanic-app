@@ -3,6 +3,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useEffect } from 'react';
 import { ArrowRight } from 'lucide-react';
+import GaragePhoto from './GaragePhoto';
 
 interface GarageMapProps {
     garages: {
@@ -18,7 +19,7 @@ interface GarageMapProps {
         color?: string; // optional hex color for marker
     }[];
     userLocation: { lat: number; lng: number };
-    onGarageSelect?: (garage: any) => void;
+    onGarageSelect?: (garage: GarageMapProps['garages'][number]) => void;
 }
 
 // Custom user location icon (blue pulsing dot)
@@ -131,16 +132,18 @@ export default function GarageMap({ garages, userLocation, onGarageSelect }: Gar
                 >
                     <Popup className="custom-popup" minWidth={200} closeButton={false}>
                         <div className="flex gap-3 p-1 cursor-pointer" onClick={() => onGarageSelect?.(garage)}>
-                            <img
-                                src={garage.photo || 'https://images.unsplash.com/photo-1517524008410-b44c6059b850?q=80&w=800'}
-                                alt={garage.name}
-                                className="w-12 h-12 rounded-lg object-cover flex-shrink-0"
-                            />
+                            <GaragePhoto src={garage.photo} name={garage.name} className="w-12 h-12 rounded-lg flex-shrink-0" />
                             <div className="flex-1 min-w-0">
                                 <h3 className="font-bold text-slate-900 text-sm truncate mb-0.5">{garage.name}</h3>
                                 <div className="flex items-center gap-1 text-xs mb-1">
-                                    <span className="text-amber-500 font-bold">★ {garage.rating || 4.5}</span>
-                                    <span className="text-slate-400">({garage.reviews || 0})</span>
+                                    {garage.reviews ? (
+                                        <>
+                                            <span className="text-amber-500 font-bold">★ {Number(garage.rating || 0).toFixed(1)}</span>
+                                            <span className="text-slate-400">({garage.reviews})</span>
+                                        </>
+                                    ) : (
+                                        <span className="text-emerald-600 font-bold">New on KYM</span>
+                                    )}
                                 </div>
                                 <div className="text-blue-600 text-xs font-bold flex items-center gap-1">
                                     View Details <ArrowRight className="w-3 h-3" />

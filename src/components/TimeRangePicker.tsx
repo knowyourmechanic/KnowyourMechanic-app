@@ -22,7 +22,8 @@ const timeOptions = [
 // Convert time string to minutes for comparison
 const timeToMinutes = (timeStr: string): number => {
     const [time, period] = timeStr.trim().split(' ');
-    let [hours, minutes] = time.split(':').map(Number);
+    const [h, minutes] = time.split(':').map(Number);
+    let hours = h;
     if (period === 'PM' && hours !== 12) hours += 12;
     if (period === 'AM' && hours === 12) hours = 0;
     return hours * 60 + minutes;
@@ -33,13 +34,14 @@ export default function TimeRangePicker({ value, onChange }: TimeRangePickerProp
     const [closeTime, setCloseTime] = useState('8:00 PM');
 
     useEffect(() => {
-        // Parse initial value like "9:00 AM - 8:00 PM"
+        // Sync from the value like "9:00 AM - 8:00 PM" — including when it
+        // arrives after mount (e.g. Settings loading the saved hours).
         if (value && value.includes(' - ')) {
             const [open, close] = value.split(' - ');
             if (open) setOpenTime(open.trim());
             if (close) setCloseTime(close.trim());
         }
-    }, []);
+    }, [value]);
 
     // Filter closing times to only show times after opening time
     const getCloseTimeOptions = () => {

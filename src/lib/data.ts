@@ -1,6 +1,26 @@
 import { supabase } from './supabase';
 
-// Supabase-backed data access, replacing the old Node API (src/lib/api.ts).
+// Supabase-backed data access.
+
+// Calls an Edge Function and returns its JSON. supabase-js turns every non-2xx
+// into an opaque "Edge Function returned a non-2xx status code" error whose
+// `context` is the raw Response — read it so callers see the server's own
+// message (e.g. "Please settle your pending platform fees…"). A 4xx body that
+// carries `ok: false` is a business outcome, not an exception, so it is
+// returned as data.
+async function invokeFunction<T>(name: string, body: Record<string, unknown>): Promise<T> {
+    const { data, error } = await supabase.functions.invoke(name, { body });
+    if (!error) return data as T;
+    const ctx = (error as { context?: unknown }).context as Response | { body?: unknown } | undefined;
+    let payload: { ok?: boolean; error?: string } | null = null;
+    if (ctx && typeof (ctx as Response).json === 'function') {
+        try { payload = await (ctx as Response).json(); } catch { payload = null; }
+    } else if (ctx && typeof (ctx as { body?: unknown }).body === 'object') {
+        payload = (ctx as { body: { ok?: boolean; error?: string } }).body;
+    }
+    if (payload && payload.ok === false) return payload as T;
+    throw new Error(payload?.error || error.message || 'Request failed.');
+}
 
 export interface GarageRow {
     id: string;
@@ -34,6 +54,8 @@ export interface ServiceRecordRow {
     is_reliable: boolean;
     invoice_number: string | null;
     created_at: string;
+    vehicle_number: string | null;
+    service_notes: string | null;
     vehicle_type: string | null;
     vehicle_make_code: string | null;
     vehicle_model_code: string | null;
@@ -489,17 +511,18 @@ export interface GarageBusinessInfo {
     businessType: string;
     legalBusinessName: string;
     referralCode?: string;
-    photoUrl?: string;
 }
 
 // Creates or updates the garage owned by ownerProfileId. Returns the garage id.
+// Resolves a field-employee referral code to the employee's name (null if unknown).
+export async function lookupReferralCode(code: string): Promise<string | null> {
+    const { data, error } = await supabase.rpc('lookup_referral_code', { p_code: code });
+    if (error) return null;
+    return (data as string | null) ?? null;
+}
+
 export async function saveGarageBusinessInfo(ownerProfileId: string, info: GarageBusinessInfo): Promise<string> {
-    let assignedEmployeeId: string | null = null;
-    if (info.referralCode) {
-        const { data: emp } = await supabase.from('employees').select('id').eq('referral_code', info.referralCode).maybeSingle();
-        assignedEmployeeId = emp?.id ?? null;
-    }
-    const payload: Record<string, any> = {
+    const payload: Record<string, unknown> = {
         owner_profile_id: ownerProfileId,
         name: info.name.trim(),
         email: info.email.trim() || null,
@@ -512,18 +535,37 @@ export async function saveGarageBusinessInfo(ownerProfileId: string, info: Garag
         business_type: info.businessType,
         legal_business_name: info.legalBusinessName || info.name,
     };
-    if (info.photoUrl) payload.photo_url = info.photoUrl;
-    if (assignedEmployeeId) payload.assigned_employee_id = assignedEmployeeId;
-
     const existing = await getMyGarage(ownerProfileId);
+    let garageId: string;
     if (existing) {
         const { error } = await supabase.from('garages').update(payload).eq('id', existing.id);
         if (error) throw new Error(error.message);
-        return existing.id;
+        garageId = existing.id;
+    } else {
+        const { data, error } = await supabase.from('garages').insert(payload).select('id').single();
+        if (error) throw new Error(error.message);
+        garageId = (data as { id: string }).id;
     }
-    const { data, error } = await supabase.from('garages').insert(payload).select('id').single();
+    // Employee attribution is server-side (employees aren't readable by garages).
+    if (info.referralCode) {
+        await supabase.rpc('apply_garage_referral', { p_garage_id: garageId, p_code: info.referralCode });
+    }
+    return garageId;
+}
+
+// Uploads the garage's cover photo to storage and saves its public URL on the
+// garage. (Photos used to be base64 strings inside the row, which bloated every
+// discovery query by megabytes.)
+export async function saveGaragePhoto(garageId: string, file: Blob): Promise<string> {
+    const path = `${garageId}/cover-${Date.now()}.jpg`;
+    const { error: upErr } = await supabase.storage
+        .from('garage-photos')
+        .upload(path, file, { upsert: true, contentType: file.type || 'image/jpeg' });
+    if (upErr) throw new Error(upErr.message);
+    const { data } = supabase.storage.from('garage-photos').getPublicUrl(path);
+    const { error } = await supabase.from('garages').update({ photo_url: data.publicUrl }).eq('id', garageId);
     if (error) throw new Error(error.message);
-    return (data as { id: string }).id;
+    return data.publicUrl;
 }
 
 // ---- Garage payment QR --------------------------------------------------
@@ -617,60 +659,45 @@ export interface CreateServiceRecordParams {
     customerHasApp: boolean;
 }
 
-// Full-flow create via the deployed Edge Function: creates the record + join
-// rows AND generates/stores the OTP (returns devOtp when ALLOW_DEV_OTP is set).
-export async function createServiceRecordWithOtp(p: CreateServiceRecordParams): Promise<{
-    serviceRecordId: string;
+export interface OtpIssueResult {
     devOtp?: string;
     otpDelivery: string;
-}> {
-    const { data, error } = await supabase.functions.invoke('service-record-create', {
-        body: {
-            garageId: p.garageId,
-            customerPhone: p.customerPhone,
-            vehicleType: p.vehicleType,
-            vehicleMakeCode: p.vehicleMakeCode,
-            vehicleModelCode: p.vehicleModelCode,
-            vehicleMakeOther: p.vehicleMakeOther,
-            vehicleModelOther: p.vehicleModelOther,
-            vehicleNumber: p.vehicleNumber,
-            modelYear: p.modelYear,
-            odometerKm: p.odometerKm,
-            serviceCategoryCodes: p.serviceCodes,
-            failureCategoryCodes: p.failureCodes,
-            serviceNotes: p.serviceNotes,
-            amount: p.amount,
-            customerHasApp: p.customerHasApp,
-        },
-    });
-    if (error) throw new Error(error.message || 'Failed to create service record.');
-    return data as { serviceRecordId: string; devOtp?: string; otpDelivery: string };
+    otpDeliveryError?: string | null;
+    otpExpiresAt?: string;
 }
 
-// Verifies the customer OTP via the deployed Edge Function.
-export async function verifyServiceOtp(serviceRecordId: string, otp: string): Promise<{ ok: boolean; reason?: string; remainingAttempts?: number }> {
-    const { data, error } = await supabase.functions.invoke('service-otp-verify', {
-        body: { serviceRecordId, otp },
+// Full-flow create via the Edge Function: creates the record + join rows AND
+// generates/stores/sends the customer OTP (devOtp only for allow-listed test numbers).
+export async function createServiceRecordWithOtp(p: CreateServiceRecordParams): Promise<OtpIssueResult & { serviceRecordId: string }> {
+    return invokeFunction('service-record-create', {
+        garageId: p.garageId,
+        customerPhone: p.customerPhone,
+        vehicleType: p.vehicleType,
+        vehicleMakeCode: p.vehicleMakeCode,
+        vehicleModelCode: p.vehicleModelCode,
+        vehicleMakeOther: p.vehicleMakeOther,
+        vehicleModelOther: p.vehicleModelOther,
+        vehicleNumber: p.vehicleNumber,
+        modelYear: p.modelYear,
+        odometerKm: p.odometerKm,
+        serviceCategoryCodes: p.serviceCodes,
+        failureCategoryCodes: p.failureCodes,
+        serviceNotes: p.serviceNotes,
+        amount: p.amount,
+        customerHasApp: p.customerHasApp,
     });
-    if (error) {
-        // A wrong/expired OTP is returned as HTTP 400 with a JSON body
-        // ({ ok:false, reason, remainingAttempts, error }). supabase-js treats any
-        // non-2xx as an error and throws FunctionsHttpError, whose `context` is the
-        // raw Response — so parse it to surface the friendly state instead of the
-        // opaque "Edge Function returned a non-2xx status code" message.
-        const ctx = (error as any).context;
-        let body: any = null;
-        if (ctx && typeof ctx.json === 'function') {
-            try { body = await ctx.json(); } catch { body = null; }
-        } else if (ctx && typeof ctx.body === 'object') {
-            body = ctx.body;
-        }
-        if (body && typeof body.ok === 'boolean') {
-            return { ok: body.ok, reason: body.reason, remainingAttempts: body.remainingAttempts };
-        }
-        throw new Error(body?.error || error.message || 'OTP verification failed.');
-    }
-    return data as { ok: boolean };
+}
+
+// Sends a fresh OTP for a record still awaiting verification (expired, locked
+// or never received). Server enforces a cooldown and a resend cap.
+export async function resendServiceOtp(serviceRecordId: string): Promise<OtpIssueResult & { resendsLeft?: number }> {
+    return invokeFunction('service-otp-resend', { serviceRecordId });
+}
+
+// Verifies the customer OTP. A wrong/expired code is a normal outcome
+// ({ ok:false, reason, remainingAttempts }), not an exception.
+export async function verifyServiceOtp(serviceRecordId: string, otp: string): Promise<{ ok: boolean; reason?: string; remainingAttempts?: number }> {
+    return invokeFunction('service-otp-verify', { serviceRecordId, otp });
 }
 
 export interface PaymentSummary {
@@ -691,6 +718,14 @@ export async function getMyRoles(): Promise<AppRole[]> {
     return (data as AppRole[]) ?? [];
 }
 
+// Adds a self-service role (customer <-> garage) to the signed-in number.
+// Returns the updated role list.
+export async function addMyRole(role: 'customer' | 'garage'): Promise<AppRole[]> {
+    const { data, error } = await supabase.rpc('add_my_role', { p_role: role });
+    if (error) throw new Error(error.message);
+    return (data as AppRole[]) ?? [];
+}
+
 export async function completeServicePayment(serviceRecordId: string, method: 'qr' | 'cash'): Promise<PaymentSummary> {
     const { data, error } = await supabase
         .rpc('complete_service_payment', { p_service_record_id: serviceRecordId, p_payment_method: method })
@@ -703,10 +738,7 @@ export async function completeServicePayment(serviceRecordId: string, method: 'q
 // WhatsApp) after payment. Best-effort: the payment is already done, so a send
 // hiccup must never surface as a payment error — callers ignore rejections.
 export async function notifyInvoice(serviceRecordId: string): Promise<void> {
-    const { error } = await supabase.functions.invoke('notify-invoice', {
-        body: { serviceRecordId },
-    });
-    if (error) throw new Error(error.message || 'Invoice notification failed.');
+    await invokeFunction('notify-invoice', { serviceRecordId });
 }
 
 // ---- Fee settlement (garage pays KYM the accrued platform fees) ----------
@@ -748,11 +780,7 @@ export interface FeeSettlementOrder {
 // returned order is opened with Razorpay Standard Checkout in-app; the webhook
 // clears the ledger once payment is verified server-side.
 export async function createFeeSettlementOrder(garageId: string): Promise<FeeSettlementOrder> {
-    const { data, error } = await supabase.functions.invoke('razorpay-create-order', {
-        body: { garageId },
-    });
-    if (error) throw new Error(error.message || 'Could not start settlement.');
-    return data as FeeSettlementOrder;
+    return invokeFunction('razorpay-create-order', { garageId });
 }
 
 // ---- Admin: platform-fee overview (what each garage owes / has settled) ----
@@ -817,33 +845,6 @@ export async function getAdminFeeOverview(): Promise<AdminFeeOverview> {
         garagesOwing: rows.filter((r) => r.outstanding > 0.001).length,
         rows,
     };
-}
-
-// Creates a service record + taxonomy join rows via the SECURITY DEFINER RPC.
-// (OTP generation/delivery happens later via the service-record-create Edge
-// Function once it is deployed.)
-export async function createServiceRecord(p: CreateServiceRecordParams): Promise<{ service_record_id: string }> {
-    const { data, error } = await supabase
-        .rpc('create_service_record_with_taxonomy', {
-            p_garage_id: p.garageId,
-            p_customer_phone: p.customerPhone,
-            p_vehicle_type: p.vehicleType,
-            p_vehicle_make_code: p.vehicleMakeCode,
-            p_vehicle_model_code: p.vehicleModelCode,
-            p_vehicle_make_other: p.vehicleMakeOther,
-            p_vehicle_model_other: p.vehicleModelOther,
-            p_vehicle_number: p.vehicleNumber,
-            p_model_year: p.modelYear,
-            p_odometer_km: p.odometerKm,
-            p_service_codes: p.serviceCodes,
-            p_failure_codes: p.failureCodes,
-            p_service_notes: p.serviceNotes,
-            p_amount: p.amount,
-            p_customer_has_app: p.customerHasApp,
-        })
-        .single();
-    if (error) throw new Error(error.message);
-    return data as { service_record_id: string };
 }
 
 // Completed/in-flight service records for a garage, newest first.
@@ -1027,6 +1028,7 @@ export async function canCustomerReviewGarage(phone: string, garageId: string): 
 export interface GarageDetailPublic {
     _id: string;
     name: string;
+    phone: string;
     location: { address: string; coordinates: [number, number] };
     serviceHours: string;
     workingDays: string;
@@ -1037,7 +1039,7 @@ export interface GarageDetailPublic {
 export async function getGaragePublic(garageId: string): Promise<GarageDetailPublic | null> {
     const { data: g, error } = await supabase
         .from('garages')
-        .select('id,name,address,latitude,longitude,service_hours,working_days,photo_url,rating,total_reviews')
+        .select('id,name,phone,address,latitude,longitude,service_hours,working_days,photo_url,rating,total_reviews')
         .eq('id', garageId)
         .maybeSingle();
     if (error || !g) {
@@ -1047,6 +1049,7 @@ export async function getGaragePublic(garageId: string): Promise<GarageDetailPub
     return {
         _id: g.id,
         name: g.name,
+        phone: g.phone || '',
         location: { address: g.address || '', coordinates: [g.longitude || 0, g.latitude || 0] },
         serviceHours: g.service_hours || '',
         workingDays: Array.isArray(g.working_days) ? g.working_days.join(',') : '',
@@ -1148,22 +1151,15 @@ export interface UnratedGarage {
     serviceDate: string;
 }
 export async function getUnratedGarage(customerProfileId: string, phone: string): Promise<UnratedGarage | null> {
-    const history = await getCustomerServiceHistory(phone);
-    const seen = new Set<string>();
-    for (const svc of history) {
-        if (!svc.garage_id || seen.has(svc.garage_id)) continue;
-        seen.add(svc.garage_id);
-        const review = await getMyReview(customerProfileId, svc.garage_id);
-        if (!review) {
-            return {
-                garageId: svc.garage_id,
-                garageName: svc.garage_name,
-                serviceDescription: svc.description,
-                serviceDate: svc.created_at,
-            };
-        }
-    }
-    return null;
+    const [history, mine] = await Promise.all([
+        getCustomerServiceHistory(phone),
+        supabase.from('reviews').select('garage_id').eq('customer_profile_id', customerProfileId),
+    ]);
+    const reviewed = new Set((mine.data ?? []).map((r: { garage_id: string }) => r.garage_id));
+    const svc = history.find((h) => h.garage_id && !reviewed.has(h.garage_id));
+    return svc
+        ? { garageId: svc.garage_id, garageName: svc.garage_name, serviceDescription: svc.description, serviceDate: svc.created_at }
+        : null;
 }
 
 // ============================================================================
@@ -1323,20 +1319,11 @@ export async function ackNotificationDelivery(deliveryId: string): Promise<void>
     if (error) throw new Error(error.message);
 }
 
-// Store/refresh this device's push token for the profile (idempotent per token).
-// Presence of an active row is what the delivery router reads as "has the app".
-export async function saveDeviceToken(profileId: string, token: string, platform: string): Promise<void> {
-    const { error } = await supabase.from('user_devices').upsert(
-        {
-            profile_id: profileId,
-            push_token: token,
-            platform,
-            is_active: true,
-            last_seen_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'profile_id,push_token' },
-    );
+// Store/refresh this device's push token for the signed-in profile. The RPC
+// also retires the token from any other account that used this phone before,
+// so their OTPs/invoices stop arriving here.
+export async function saveDeviceToken(token: string, platform: string): Promise<void> {
+    const { error } = await supabase.rpc('register_device', { p_push_token: token, p_platform: platform });
     if (error) throw new Error(error.message);
 }
 
@@ -1350,4 +1337,81 @@ export async function hasActiveDevice(profileId: string): Promise<boolean> {
         .eq('is_active', true);
     if (error) { console.error('hasActiveDevice error', error); return false; }
     return (count ?? 0) > 0;
+}
+
+// ============================================================================
+// Customer discovery
+// ============================================================================
+export interface NearbyGarage {
+    id: string;
+    name: string;
+    phone: string;
+    address: string;
+    lat: number;
+    lng: number;
+    distanceKm: number;
+    rating: number;
+    reviews: number;
+    photoUrl: string | null;
+    serviceHours: string;
+    workingDays: string[];
+    joinedAt: string | null;
+}
+
+export function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLng = ((lng2 - lng1) * Math.PI) / 180;
+    const a = Math.sin(dLat / 2) ** 2
+        + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+export function formatDistance(km: number): string {
+    return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
+}
+
+// Verified, active garages within `radiusKm` of the user, nearest first. A
+// bounding box (which fully contains the search circle) is applied in the query
+// so nearby garages are actually returned; the exact circle is applied here.
+export async function discoverGarages(lat: number, lng: number, radiusKm = 5): Promise<NearbyGarage[]> {
+    let query = supabase
+        .from('garages')
+        .select('id,name,phone,address,latitude,longitude,service_hours,working_days,photo_url,rating,total_reviews,created_at')
+        .eq('is_verified', true)
+        .eq('is_offboarded', false)
+        .not('latitude', 'is', null)
+        .not('longitude', 'is', null);
+
+    const latDelta = radiusKm / 111.32;
+    const lngDelta = radiusKm / (111.32 * (Math.cos((lat * Math.PI) / 180) || 1));
+    query = query
+        .gte('latitude', lat - latDelta).lte('latitude', lat + latDelta)
+        .gte('longitude', lng - lngDelta).lte('longitude', lng + lngDelta);
+
+    const { data, error } = await query.limit(200);
+    if (error) throw new Error(error.message);
+
+    return (data ?? [])
+        .map((g) => {
+            const gLat = Number(g.latitude);
+            const gLng = Number(g.longitude);
+            return {
+                id: g.id as string,
+                name: (g.name as string) || 'Unnamed garage',
+                phone: (g.phone as string) || '',
+                address: (g.address as string) || '',
+                lat: gLat,
+                lng: gLng,
+                distanceKm: distanceKm(lat, lng, gLat, gLng),
+                rating: Number(g.rating) || 0,
+                reviews: Number(g.total_reviews) || 0,
+                photoUrl: (g.photo_url as string) || null,
+                serviceHours: (g.service_hours as string) || '',
+                workingDays: Array.isArray(g.working_days) ? (g.working_days as string[]) : [],
+                joinedAt: (g.created_at as string) || null,
+            };
+        })
+        .filter((g) => g.distanceKm <= radiusKm)
+        .sort((a, b) => a.distanceKm - b.distanceKm);
 }

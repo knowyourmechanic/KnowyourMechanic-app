@@ -10,7 +10,8 @@ import TimeRangePicker from '../../components/TimeRangePicker';
 import WorkingDaysPicker from '../../components/WorkingDaysPicker';
 import LocationPicker from '../../components/LocationPicker';
 import { useAuth } from '../../contexts/AuthContext';
-import { getMyGarage, saveGarageBusinessInfo, saveGarageQr, getMyGarageQr } from '../../lib/data';
+import { getMyGarage, saveGarageBusinessInfo, saveGarageQr, getMyGarageQr, saveGaragePhoto } from '../../lib/data';
+import { compressImage } from '../../lib/image';
 import RoleSwitcher from '../../components/RoleSwitcher';
 
 
@@ -144,54 +145,22 @@ export default function GarageSettings() {
 
     const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (!file) return;
-
-        // Validate file type and size (limit to 1MB for Base64 storage)
-        if (!file.type.startsWith('image/')) {
-            setError('Please select an image file');
+        e.target.value = '';
+        if (!file || !garageId) return;
+        if (file.size > 15 * 1024 * 1024) {
+            setError('Image must be under 15MB');
             return;
         }
-        if (file.size > 1 * 1024 * 1024) {
-            setError('Image must be less than 1MB');
-            return;
-        }
-
         setUploadingPhoto(true);
         setError('');
-
         try {
-            // Convert file to Base64
-            const reader = new FileReader();
-            reader.onload = async () => {
-                try {
-                    const base64String = reader.result as string;
-
-                    // Store the image (Base64 data URL) on the garage row.
-                    const { supabase } = await import('../../lib/supabase');
-                    const { error: upErr } = await supabase
-                        .from('garages')
-                        .update({ photo_url: base64String })
-                        .eq('id', garageId);
-                    if (upErr) throw new Error(upErr.message);
-
-                    setPhotoUrl(base64String);
-                    setSuccess('Photo updated successfully!');
-                    setTimeout(() => setSuccess(''), 3000);
-                } catch (err: any) {
-                    console.error('Photo save error:', err);
-                    setError(err.message || 'Failed to save photo');
-                } finally {
-                    setUploadingPhoto(false);
-                }
-            };
-            reader.onerror = () => {
-                setError('Failed to read image file');
-                setUploadingPhoto(false);
-            };
-            reader.readAsDataURL(file);
-        } catch (err: any) {
-            console.error('Photo upload error:', err);
-            setError(err.message || 'Failed to upload photo');
+            const url = await saveGaragePhoto(garageId, await compressImage(file));
+            setPhotoUrl(url);
+            setSuccess('Photo updated!');
+            setTimeout(() => setSuccess(''), 3000);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to upload photo');
+        } finally {
             setUploadingPhoto(false);
         }
     };

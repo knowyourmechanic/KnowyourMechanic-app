@@ -19,5 +19,11 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // Supabase rows are still mostly untyped; generated types live in
+      // supabase/types/database.types.ts. Surface `any` without failing lint
+      // until those are wired into the client.
+      '@typescript-eslint/no-explicit-any': 'warn',
+    },
   },
 ])

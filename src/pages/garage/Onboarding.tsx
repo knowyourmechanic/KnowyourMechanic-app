@@ -10,7 +10,8 @@ import TimeRangePicker from '../../components/TimeRangePicker';
 import WorkingDaysPicker from '../../components/WorkingDaysPicker';
 import LocationPicker from '../../components/LocationPicker';
 import { useAuth } from '../../contexts/AuthContext';
-import { getMyGarage, saveGarageBusinessInfo, saveGarageQr, completeGarageOnboarding } from '../../lib/data';
+import { getMyGarage, saveGarageBusinessInfo, saveGarageQr, completeGarageOnboarding, lookupReferralCode, saveGaragePhoto } from '../../lib/data';
+import { compressImage } from '../../lib/image';
 
 type Step = 'business' | 'qr' | 'success';
 
@@ -64,6 +65,7 @@ export default function GarageOnboardingWizard() {
 
     // The garage's static payment QR (image the customer scans to pay directly).
     const [qrFile, setQrFile] = useState<File | null>(null);
+    const [photoFile, setPhotoFile] = useState<File | null>(null);
     const [qrPreview, setQrPreview] = useState('');
 
     const [referralStatus, setReferralStatus] = useState<ReferralStatus>({
@@ -135,25 +137,22 @@ export default function GarageOnboardingWizard() {
             setReferralStatus({ checking: false, valid: null, employeeName: '' });
             return;
         }
-        // Referral verification needs a public RPC (the employees table is
-        // admin-only under RLS), so for now we accept a well-formed code and
-        // apply the employee linkage server-side when it matches.
-        setReferralStatus({ checking: false, valid: true, employeeName: '' });
+        setReferralStatus({ checking: true, valid: null, employeeName: '' });
+        const name = await lookupReferralCode(code);
+        setReferralStatus({ checking: false, valid: !!name, employeeName: name ?? '' });
     };
 
     // ---- Photo handler ----
     const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        if (file.size > 5 * 1024 * 1024) {
-            setError('Photo must be under 5MB');
+        if (!file.type.startsWith('image/')) { setError('Please select an image file'); return; }
+        if (file.size > 15 * 1024 * 1024) {
+            setError('Photo must be under 15MB');
             return;
         }
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            setBusiness(prev => ({ ...prev, photoBase64: reader.result as string }));
-        };
-        reader.readAsDataURL(file);
+        setPhotoFile(file);
+        setBusiness(prev => ({ ...prev, photoBase64: URL.createObjectURL(file) }));
     };
 
     // ---- Payment QR handler ----
@@ -186,9 +185,13 @@ export default function GarageOnboardingWizard() {
                 workingDays: business.workingDays,
                 businessType: business.businessType,
                 legalBusinessName: business.legalBusinessName || business.name,
-                referralCode: business.referralCode || undefined,
-                photoUrl: business.photoBase64 || undefined,
+                // Only attach a code the server confirmed.
+                referralCode: referralStatus.valid ? business.referralCode : undefined,
             });
+            if (photoFile) {
+                // Non-fatal: the garage can add a photo later in Settings.
+                await saveGaragePhoto(id, await compressImage(photoFile)).catch(() => {});
+            }
             setGarageId(id);
             setFieldErrors({});
             setStep('qr');
@@ -455,7 +458,7 @@ export default function GarageOnboardingWizard() {
                                     <input
                                         value={business.referralCode}
                                         onChange={(e) => {
-                                            const code = e.target.value.toUpperCase().replace(/[^A-Z0-9\-]/g, '');
+                                            const code = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '');
                                             setBusiness({ ...business, referralCode: code });
                                             if (referralStatus.valid !== null) {
                                                 setReferralStatus({ checking: false, valid: null, employeeName: '' });

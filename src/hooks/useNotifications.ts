@@ -35,7 +35,7 @@ export function useNotifications(profileId?: string, onPush?: () => void) {
 
                 handles.push(await PushNotifications.addListener('registration', async (token) => {
                     try {
-                        await saveDeviceToken(profileId, token.value, Capacitor.getPlatform());
+                        await saveDeviceToken(token.value, Capacitor.getPlatform());
                     } catch (e) {
                         console.error('saveDeviceToken failed', e);
                     }
@@ -45,7 +45,7 @@ export function useNotifications(profileId?: string, onPush?: () => void) {
                     console.error('push registration error', err);
                 }));
 
-                const handleIncoming = (data: Record<string, any> | undefined) => {
+                const handleIncoming = (data: Record<string, string> | undefined) => {
                     const deliveryId = data?.delivery_id;
                     if (deliveryId) ackNotificationDelivery(deliveryId).catch(() => {});
                     onPushRef.current?.();

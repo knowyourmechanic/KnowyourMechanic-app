@@ -20,6 +20,7 @@ interface AuthContextType {
     setUserData: (data: UserData | null) => void;
     setUser: (user: User | null) => void;
     switchRole: (role: AppRole) => void;
+    refreshRoles: () => Promise<void>;
     logout: () => Promise<void>;
 }
 
@@ -32,6 +33,7 @@ const AuthContext = createContext<AuthContextType>({
     setUserData: () => { },
     setUser: () => { },
     switchRole: () => { },
+    refreshRoles: async () => { },
     logout: async () => { },
 });
 
@@ -80,28 +82,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     useEffect(() => {
+        let active = true;
+
+        // Initial session: keep the loading screen up until the profile (and
+        // therefore the active role) is known, so routes never guess.
         supabase.auth.getSession().then(async ({ data }) => {
             const sessionUser = data.session?.user ?? null;
+            if (!active) return;
             setUser(sessionUser);
-            if (sessionUser) {
-                await loadProfile();
-            }
-            setLoading(false);
+            if (sessionUser) await loadProfile();
+            if (active) setLoading(false);
         });
 
-        const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+        // Later changes. Supabase warns against awaiting other supabase calls
+        // inside this callback (it holds the auth lock), so defer the profile
+        // load; and skip token refreshes / the initial event handled above.
+        const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+            if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') return;
             const sessionUser = session?.user ?? null;
             setUser(sessionUser);
-            if (sessionUser) {
-                loadProfile();
-            } else {
+            if (sessionUser && event === 'SIGNED_IN') {
+                // A fresh OTP login is finished by AuthPage (which may need to ask
+                // a multi-role user which role to enter), so don't pick a role for
+                // them here; only re-hydrate when a role was already chosen.
+                setTimeout(() => {
+                    if (!active) return;
+                    if (localStorage.getItem('userRole')) loadProfile();
+                    else getMyRoles().then(setAvailableRoles).catch(() => {});
+                }, 0);
+            } else if (!sessionUser) {
                 setUserData(null);
+                setAvailableRoles([]);
             }
-            setLoading(false);
         });
 
-        return () => sub.subscription.unsubscribe();
+        return () => {
+            active = false;
+            sub.subscription.unsubscribe();
+        };
     }, []);
+
+    // Re-read the role list (e.g. after the user adds a garage role).
+    const refreshRoles = async () => setAvailableRoles(await getMyRoles());
 
     const logout = async () => {
         try {
@@ -109,7 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setUser(null);
             setUserData(null);
             setAvailableRoles([]);
-            localStorage.removeItem('userRole');
+            for (const k of ['userRole', 'userData', 'garageOnboarded', 'customerProfile']) localStorage.removeItem(k);
         } catch (error) {
             console.error('Logout error:', error);
         }
@@ -124,12 +146,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUserData,
         setUser,
         switchRole,
+        refreshRoles,
         logout,
     };
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- hook lives beside its provider
 export function useAuth() {
     const context = useContext(AuthContext);
     if (!context) {
