@@ -36,7 +36,7 @@ export default function AdminLayout() {
         <div className="min-h-screen bg-black text-zinc-100 font-sans selection:bg-zinc-800 flex flex-col md:flex-row">
 
             {/* Mobile Header (Hamburger Menu) */}
-            <div className="md:hidden flex items-center justify-between h-16 px-4 bg-black border-b border-zinc-900 sticky top-0 z-50">
+            <div className="md:hidden flex items-center justify-between min-h-16 pt-safe pb-2 px-4 bg-black border-b border-zinc-900 sticky top-0 z-50">
                 <div className="flex items-center gap-3">
                     <img src="/logo.jpg" alt="Logo" className="w-8 h-8 rounded object-cover" />
                     <span className="font-bold text-sm tracking-tight text-white">Admin Console</span>
