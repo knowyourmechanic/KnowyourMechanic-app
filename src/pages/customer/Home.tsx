@@ -6,14 +6,13 @@ import { useLocation } from '../../hooks/useLocation';
 import { useAuth } from '../../contexts/AuthContext';
 import {
     buildPassports, discoverGarages, formatDistance, getCustomerProfile, getCustomerServiceHistory, getGarageServiceCounts,
-    getMyPendingServices, getUnratedGarage, reminderFor, submitReview,
-    type NearbyGarage, type PendingService, type UnratedGarage,
+    getUnratedGarage, reminderFor, submitReview,
+    type NearbyGarage, type UnratedGarage,
 } from '../../lib/data';
 import { getOpenStatus, openLabel } from '../../lib/hours';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/en';
 import { useToast } from '../../components/Toast';
-import PendingServiceCard from '../../components/PendingServiceCard';
 import { haptic } from '../../lib/haptics';
 import GarageMap from '../../components/GarageMap';
 import GaragePhoto from '../../components/GaragePhoto';
@@ -83,7 +82,6 @@ export default function CustomerHome() {
     const [submittingReview, setSubmittingReview] = useState(false);
     const [reviewError, setReviewError] = useState('');
 
-    const [pending, setPending] = useState<PendingService[]>([]);
     const [dueVehicle, setDueVehicle] = useState<DueVehicle | null>(null);
     const [jobCounts, setJobCounts] = useState<Map<string, number>>(new Map());
 
@@ -92,7 +90,6 @@ export default function CustomerHome() {
     const refreshMine = useCallback(() => {
         if (!userData?._id || !userData.phoneNumber) return;
         getUnratedGarage(userData._id, userData.phoneNumber).then(setUnrated).catch(() => setUnrated(null));
-        getMyPendingServices(userData._id, userData.phoneNumber).then(setPending).catch(() => setPending([]));
         // On-device service reminder: the most overdue vehicle, if any.
         getCustomerServiceHistory(userData.phoneNumber).then((h) => {
             const due = buildPassports(h).find((p) => reminderFor(p.lastServiceAt).state !== 'ok');
@@ -105,7 +102,7 @@ export default function CustomerHome() {
         if (!userData?._id) return;
         refreshMine();
         getCustomerProfile(userData._id).then((p) => setCustomerName(p.name)).catch(() => {});
-        // Coming back to the app (e.g. from the SMS/WhatsApp with the OTP): re-check.
+        // Coming back to the app (e.g. after a service): re-check the nudges.
         const onVisible = () => { if (document.visibilityState === 'visible') refreshMine(); };
         document.addEventListener('visibilitychange', onVisible);
         return () => document.removeEventListener('visibilitychange', onVisible);
@@ -240,11 +237,6 @@ export default function CustomerHome() {
                     )}
                 </button>
             </div>
-
-            {/* Services awaiting this customer's OTP: check the details first */}
-            {pending.map((p) => (
-                <PendingServiceCard key={p.id} service={p} onDeclined={(id) => setPending((xs) => xs.filter((x) => x.id !== id))} />
-            ))}
 
             {/* On-device service reminder */}
             {dueVehicle && (

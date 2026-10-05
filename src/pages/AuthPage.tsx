@@ -11,6 +11,7 @@ import { useI18n } from '../i18n';
 import LanguagePicker from '../components/LanguagePicker';
 import { errorMessage } from '../lib/errors';
 import { haptic } from '../lib/haptics';
+import { useCountdown } from '../hooks/useCountdown';
 
 type Step = 'phone' | 'otp' | 'role' | 'choose';
 
@@ -27,6 +28,9 @@ export default function AuthPage() {
 
     const navigate = useNavigate();
     const { t } = useI18n();
+    // Login-code resend unlocks after this many seconds (each resend is an SMS).
+    const RESEND_AFTER_S = 59;
+    const [resendIn, setResendIn] = useCountdown();
     const { setUserData, setUser, refreshRoles } = useAuth();
 
     // Sets the active-role userData and routes to the matching home screen.
@@ -50,9 +54,31 @@ export default function AuthPage() {
 
         try {
             await sendOtp(phone);
+            setOtp('');
             setStep('otp');
+            setResendIn(RESEND_AFTER_S);
         } catch (err) {
             setError(errorMessage(err, t('auth.sendFailed')));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleResend = async () => {
+        if (resendIn > 0 || loading) return;
+        setLoading(true);
+        setError('');
+        try {
+            await sendOtp(phone);
+            setOtp('');
+            setResendIn(RESEND_AFTER_S);
+            haptic('tap');
+        } catch (err) {
+            // Supabase Auth's own rate limit ("…only request this after N seconds"):
+            // keep counting down instead of showing an error.
+            const wait = /after (\d+) seconds?/i.exec(errorMessage(err, ''));
+            if (wait) setResendIn(Number(wait[1]));
+            else setError(errorMessage(err, t('auth.sendFailed')));
         } finally {
             setLoading(false);
         }
@@ -249,6 +275,10 @@ export default function AuthPage() {
                             <div className="flex justify-center">
                                 <input
                                     type="text"
+                                    inputMode="numeric"
+                                    autoComplete="one-time-code"
+                                    autoFocus
+                                    aria-label={t('auth.otpTitle')}
                                     placeholder="000000"
                                     className="w-full h-20 bg-white dark:bg-[var(--app-surface)] rounded-3xl text-center text-4xl font-bold tracking-[1rem] placeholder:text-slate-200 dark:placeholder:text-[#5A6B82]"
                                     value={otp}
@@ -269,10 +299,11 @@ export default function AuthPage() {
 
                             <button
                                 type="button"
-                                onClick={() => setStep('phone')}
-                                className="w-full text-blue-600 font-bold hover:underline"
+                                onClick={handleResend}
+                                disabled={resendIn > 0 || loading}
+                                className="w-full text-blue-600 font-bold disabled:text-slate-400 dark:disabled:text-[var(--app-muted)]"
                             >
-                                Resend code
+                                {resendIn > 0 ? t('auth.resendIn', { s: resendIn }) : t('auth.resend')}
                             </button>
                         </form>
                     </motion.div>

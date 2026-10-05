@@ -9,6 +9,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
+    "deploy:backend": "node scripts/deploy-backend.mjs",
     "gen:types": "supabase gen types typescript --project-id spwijxqlzzqvlopsojrx --schema public > src/lib/database.types.ts",
     "prepare": "git config core.hooksPath .githooks || true"
   },

@@ -14,6 +14,7 @@ import {
 import { useI18n, type TFunction } from '../i18n';
 import { errorMessage } from '../lib/errors';
 import { haptic } from '../lib/haptics';
+import { useCountdown } from '../hooks/useCountdown';
 
 // Past records the dashboard already has — used for quick picks and to
 // suggest a returning customer's vehicle.
@@ -67,7 +68,7 @@ export default function AddServiceModal({ isOpen, garageId, resume, recent = [],
     const [recordId, setRecordId] = useState('');
     const [devOtp, setDevOtp] = useState('');
     const [otp, setOtp] = useState('');
-    const [cooldown, setCooldown] = useState(0);
+    const [cooldown, setCooldown] = useCountdown();
     const [summary, setSummary] = useState<PaymentSummary | null>(null);
     const [garageQrUrl, setGarageQrUrl] = useState<string | null>(null);
     const [catalog, setCatalog] = useState<QuickPick[]>([]);
@@ -95,13 +96,7 @@ export default function AddServiceModal({ isOpen, garageId, resume, recent = [],
                 .then((rows) => setCatalog(rows.filter((r) => r.isActive).map((r) => ({ label: r.name, amount: r.price || null }))))
                 .catch(() => setCatalog([]));
         }
-    }, [isOpen, resume, garageId]);
-
-    useEffect(() => {
-        if (cooldown <= 0) return;
-        const timer = setTimeout(() => setCooldown((c) => c - 1), 1000);
-        return () => clearTimeout(timer);
-    }, [cooldown]);
+    }, [isOpen, resume, garageId, setCooldown]);
 
     // Quick picks: the garage's price list first, then its most frequent past jobs.
     const quickPicks = useMemo<QuickPick[]>(() => {

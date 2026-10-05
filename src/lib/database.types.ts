@@ -1498,10 +1498,6 @@ export type Database = {
       };
       current_profile_id: { Args: Record<PropertyKey, never>; Returns: string };
       current_role: { Args: Record<PropertyKey, never>; Returns: Database["public"]["Enums"]["app_role"] };
-      customer_decline_service: {
-        Args: { p_reason?: string; p_service_record_id: string };
-        Returns: undefined;
-      };
       dearmor: { Args: { "": string }; Returns: string };
       employee_assigned_to_garage: { Args: { target_garage_id: string }; Returns: boolean };
       garage_owed_balance: { Args: { p_garage_id: string }; Returns: number };

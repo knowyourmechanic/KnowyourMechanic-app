@@ -12,7 +12,6 @@ const REASON_LABELS: Record<string, string> = {
     overcharging: 'Overcharging',
     poor_service: 'Poor Service',
     harassment: 'Harassment',
-    service_not_received: 'Service not received',
     other: 'Other',
 };
 

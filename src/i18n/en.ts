@@ -24,6 +24,8 @@ export const en = {
     'auth.verify': 'Verify code',
     'auth.verifyFailed': 'Invalid code. Please try again.',
     'auth.changeNumber': 'Change number',
+    'auth.resend': 'Resend code',
+    'auth.resendIn': 'Resend code in {s}s',
     'auth.roleTitle': 'How will you use KnowYourMechanic?',
     'auth.roleCustomer': 'I own a vehicle',
     'auth.roleCustomerSub': 'Find garages, keep your service history',
@@ -102,17 +104,6 @@ export const en = {
     'reminder.ok': 'Next service in about {days} days.',
     'reminder.cardTitle': '{vehicle} is due for a service',
     'reminder.cardBody': 'Last serviced {date}. Pick a garage below.',
-
-    // pending confirmation
-    'pending.eyebrow': 'Waiting for your OTP',
-    'pending.title': '{garage} logged a service on your number',
-    'pending.work': 'Work done',
-    'pending.vehicle': 'Vehicle',
-    'pending.amount': 'Amount',
-    'pending.howTo': 'If this is correct, share the 6-digit OTP we sent you with the garage. If you did not get this service, decline it.',
-    'pending.declineCta': "I didn't get this service",
-    'pending.declineConfirm': 'Decline this service from {garage}? It will be cancelled and our team will review it.',
-    'pending.declined': 'Declined. Our team will look into it.',
 
     // passport
     'passport.title': 'Vehicle Service Passport',

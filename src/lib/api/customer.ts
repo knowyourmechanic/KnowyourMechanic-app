@@ -297,52 +297,6 @@ export async function discoverGarages(lat: number, lng: number, radiusKm = 5): P
 }
 
 // ============================================================================
-// Pending confirmations (garage logged a service; customer hasn't shared OTP)
-// ============================================================================
-export interface PendingService {
-    id: string;
-    garageName: string;
-    vehicleNumber: string | null;
-    work: string;
-    amount: number;
-    createdAt: string;
-}
-
-// Services awaiting this customer's OTP, newest first. Older than the OTP
-// lifetime + resend window they're stale, so only the last 24h are shown.
-export async function getMyPendingServices(profileId: string, phone: string): Promise<PendingService[]> {
-    const digits = phone.replace(/\D/g, '').slice(-10);
-    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-    const { data, error } = await supabase
-        .from('service_records')
-        .select('id,garage_name,vehicle_number,service_notes,description,amount,created_at')
-        .eq('status', 'pending_otp')
-        // As the customer only (a garage owner can also read records it created).
-        .or(`customer_profile_id.eq.${profileId},customer_phone.eq.${digits}`)
-        .gte('created_at', since)
-        .order('created_at', { ascending: false });
-    if (error) return [];
-    return (data ?? []).map((r) => ({
-        id: r.id,
-        garageName: r.garage_name,
-        vehicleNumber: r.vehicle_number,
-        work: (r.service_notes && r.service_notes.trim()) || r.description,
-        amount: Number(r.amount),
-        createdAt: r.created_at,
-    }));
-}
-
-// "I didn't get this service": cancels the record, burns the OTP and files a
-// report for support to review.
-export async function declineService(serviceRecordId: string, reason?: string): Promise<void> {
-    const { error } = await supabase.rpc('customer_decline_service', {
-        p_service_record_id: serviceRecordId,
-        p_reason: reason ?? undefined,
-    });
-    if (error) throw new Error(error.message);
-}
-
-// ============================================================================
 // Vehicle Service Passport
 // ============================================================================
 export interface PassportEntry {

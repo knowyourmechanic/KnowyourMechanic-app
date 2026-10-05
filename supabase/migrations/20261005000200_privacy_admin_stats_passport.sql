@@ -8,8 +8,7 @@
 --    shipping every completed service record to the browser.
 -- 3. Public "services completed on KYM" counts for discovery (no verification
 --    badge — garages are not vetted; this is just a count of OTP-confirmed jobs).
--- 4. Customer can decline a service they did not receive (before sharing the OTP).
--- 5. Vehicle Service Passport: a customer can share a read-only link to one
+-- 4. Vehicle Service Passport: a customer can share a read-only link to one
 --    vehicle's confirmed service history (e.g. when selling it).
 
 -- 1. Garage standing ----------------------------------------------------------
@@ -211,44 +210,7 @@ as $$
 $$;
 grant execute on function public.public_garage_service_counts(uuid[]) to anon, authenticated;
 
--- 4. Customer declines a service they did not receive ---------------------------
-create or replace function public.customer_decline_service(p_service_record_id uuid, p_reason text default null)
-returns void
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_rec public.service_records;
-  v_profile uuid := public.current_profile_id();
-begin
-  select * into v_rec from public.service_records where id = p_service_record_id for update;
-  if v_rec.id is null then
-    raise exception 'Service record not found' using errcode = 'P0002';
-  end if;
-  if not (v_rec.customer_profile_id = v_profile or v_rec.customer_phone = public.current_phone_number()) then
-    raise exception 'Not your service record' using errcode = '42501';
-  end if;
-  if v_rec.status <> 'pending_otp' then
-    raise exception 'This service can no longer be declined' using errcode = '22023';
-  end if;
-
-  update public.service_records
-    set status = 'cancelled', approved_by_customer = false, updated_at = now()
-    where id = v_rec.id;
-  update public.service_otps set consumed = true
-    where service_record_id = v_rec.id and consumed = false;
-
-  -- Flag it for support review (a garage logging services that didn't happen).
-  insert into public.reports (reporter_profile_id, garage_id, service_record_id, reason, description)
-  values (v_profile, v_rec.garage_id, v_rec.id, 'service_not_received',
-          coalesce(nullif(btrim(p_reason), ''), 'Customer declined this service: they did not receive it.'));
-end;
-$$;
-revoke all on function public.customer_decline_service(uuid, text) from public, anon;
-grant execute on function public.customer_decline_service(uuid, text) to authenticated;
-
--- 5. Vehicle Service Passport sharing -------------------------------------------
+-- 4. Vehicle Service Passport sharing -------------------------------------------
 create table if not exists public.vehicle_shares (
   token text primary key,
   profile_id uuid not null references public.profiles(id) on delete cascade,
