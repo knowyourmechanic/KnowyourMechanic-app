@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase';
 import { getMyRoles, type AppRole } from '../lib/data';
 import { ROLE_META, routeForRole } from '../lib/roles';
 import { useAuth } from '../contexts/AuthContext';
+import { errorMessage } from '../lib/errors';
 
 type Step = 'phone' | 'otp' | 'role' | 'choose';
 
@@ -46,8 +47,8 @@ export default function AuthPage() {
         try {
             await sendOtp(phone);
             setStep('otp');
-        } catch (err: any) {
-            setError(err.message || 'Failed to send OTP. Please try again.');
+        } catch (err) {
+            setError(errorMessage(err, 'Failed to send OTP. Please try again.'));
         } finally {
             setLoading(false);
         }
@@ -90,8 +91,8 @@ export default function AuthPage() {
 
             // No profile yet — new user, choose a role.
             setStep('role');
-        } catch (err: any) {
-            setError(err.message || 'Invalid OTP code');
+        } catch (err) {
+            setError(errorMessage(err, 'Invalid OTP code'));
         } finally {
             setLoading(false);
         }
@@ -132,8 +133,8 @@ export default function AuthPage() {
             }
 
             await enterAsRole(role, row);
-        } catch (err: any) {
-            setError(err.message || 'Error creating profile');
+        } catch (err) {
+            setError(errorMessage(err, 'Error creating profile'));
         } finally {
             setLoading(false);
         }

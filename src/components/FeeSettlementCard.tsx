@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Loader2, AlertTriangle, CheckCircle2, IndianRupee, RefreshCw } from 'lucide-react';
 import { getMyGarageSettlement, createFeeSettlementOrder, isFeeSettlementEnabled, type GarageSettlement } from '../lib/data';
 import { openRazorpayCheckout } from '../lib/razorpay';
+import { errorMessage } from '../lib/errors';
 
 interface Props {
     garageId: string;
@@ -70,11 +71,12 @@ export default function FeeSettlementCard({ garageId, garageName, reloadSignal }
             const cleared = await waitForClearance(before);
             setConfirming(false);
             if (cleared) { setJustPaid(true); setTimeout(() => setJustPaid(false), 4000); }
-        } catch (err: any) {
+        } catch (err) {
             setPaying(false);
             setConfirming(false);
             // A user-cancelled sheet isn't an error worth shouting about.
-            if (err?.message && err.message !== 'Payment cancelled.') setError(err.message);
+            const msg = errorMessage(err, '');
+            if (msg && msg !== 'Payment cancelled.') setError(msg);
         }
     };
 

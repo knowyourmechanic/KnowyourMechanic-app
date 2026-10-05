@@ -5,7 +5,7 @@ import {
     ChevronRight, Star, Search, ChevronDown, ChevronsRight
 } from 'lucide-react';
 import GarageMap from '../../components/GarageMap';
-import { getAdminStats, getAdminGarages } from '../../lib/data';
+import { getAdminStats, getAdminGarages, type AdminGarageItem } from '../../lib/data';
 
 interface Stats {
     totalGarages: number;
@@ -19,19 +19,7 @@ interface Stats {
     dailyBreakdown: { date: string; count: number; revenue: number }[];
 }
 
-interface GarageItem {
-    _id: string;
-    name: string;
-    location: { address: string; coordinates: [number, number] };
-    phone: string;
-    rating: number;
-    totalReviews: number;
-    serviceCount: number;
-    totalEarnings: number;
-    onboardingStatus: string;
-    isVerified: boolean;
-    assignedEmployeeId?: { name: string; referralCode: string };
-}
+type GarageItem = AdminGarageItem;
 
 export default function AdminDashboard() {
     const [stats, setStats] = useState<Stats | null>(null);
@@ -43,16 +31,18 @@ export default function AdminDashboard() {
 
     useEffect(() => {
         fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load when the key changes; the loader is also reused for manual refresh
     }, []);
 
     // Re-fetch stats when chart range changes
     useEffect(() => {
         if (!loading) fetchStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load when the key changes; the loader is also reused for manual refresh
     }, [chartRange]);
 
     const fetchStats = async () => {
         try {
-            setStats(await getAdminStats());
+            setStats(await getAdminStats(parseInt(chartRange, 10) || 30));
         } catch (err) {
             console.error('Stats fetch error:', err);
         }
@@ -60,9 +50,9 @@ export default function AdminDashboard() {
 
     const fetchData = async () => {
         try {
-            const [statsData, garagesData] = await Promise.all([getAdminStats(), getAdminGarages()]);
+            const [statsData, garagesData] = await Promise.all([getAdminStats(parseInt(chartRange, 10) || 30), getAdminGarages()]);
             setStats(statsData);
-            setGarages(garagesData as any);
+            setGarages(garagesData);
         } catch (err) {
             console.error('Admin fetch error:', err);
         } finally {
@@ -279,9 +269,9 @@ export default function AdminDashboard() {
                                             {formatCurrency(garage.totalEarnings || 0)}
                                         </td>
                                         <td className="px-5 py-3">
-                                            {garage.assignedEmployeeId ? (
+                                            {garage.referredBy ? (
                                                 <span className="font-mono text-[10px] text-zinc-500 bg-zinc-900 border border-zinc-800 px-2 py-1 rounded">
-                                                    {(garage.assignedEmployeeId as any).referralCode}
+                                                    {garage.referredBy.referralCode}
                                                 </span>
                                             ) : (
                                                 <span className="text-zinc-700 text-xs">—</span>

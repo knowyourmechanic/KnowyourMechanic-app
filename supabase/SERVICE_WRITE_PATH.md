@@ -75,7 +75,7 @@ sent, never its value (outside dev).
 ## Not done yet
 
 - Wire `GarageWorkspace` to call the Edge Functions / RPCs when Supabase is configured.
-- Apply the migrations to a real Supabase DB and regenerate `database.types.ts`
+- Apply the migrations to a real Supabase DB and regenerate `src/lib/database.types.ts` (`npm run gen:types`)
   (until then, the mobile payment wrapper calls the RPC through a narrow shim).
 - OTP **resend** endpoint (`resend_count` column already present).
 - Invoice/report delivery: push + WhatsApp dispatch of the `pending` notification (Step 5).

@@ -4,11 +4,18 @@
 // open via intents and return. The server webhook is the source of truth for a
 // completed payment; the success handler here only tells the UI to refresh.
 
+// Minimal typing for the checkout.js global (only what we use).
+interface RazorpaySuccess { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }
+interface RazorpayFailure { error?: { description?: string } }
+interface RazorpayInstance { open(): void; on(event: 'payment.failed', cb: (r: RazorpayFailure) => void): void }
+type RazorpayCtor = new (opts: Record<string, unknown>) => RazorpayInstance;
+const razorpayGlobal = () => (window as unknown as { Razorpay?: RazorpayCtor }).Razorpay;
+
 const CHECKOUT_SRC = 'https://checkout.razorpay.com/v1/checkout.js';
 let loadingPromise: Promise<void> | null = null;
 
 function loadCheckoutScript(): Promise<void> {
-    if (typeof window !== 'undefined' && (window as any).Razorpay) return Promise.resolve();
+    if (typeof window !== 'undefined' && razorpayGlobal()) return Promise.resolve();
     if (loadingPromise) return loadingPromise;
     loadingPromise = new Promise<void>((resolve, reject) => {
         const s = document.createElement('script');
@@ -44,12 +51,12 @@ export interface CheckoutResult {
 // dismissal/failure. Settlement is finalized server-side by the webhook.
 export async function openRazorpayCheckout(o: CheckoutOptions): Promise<CheckoutResult> {
     await loadCheckoutScript();
-    const RazorpayCtor = (window as any).Razorpay;
-    if (!RazorpayCtor) throw new Error('Payment module unavailable.');
+    const Razorpay = razorpayGlobal();
+    if (!Razorpay) throw new Error('Payment module unavailable.');
 
     return new Promise<CheckoutResult>((resolve, reject) => {
         let settled = false;
-        const rzp = new RazorpayCtor({
+        const rzp = new Razorpay({
             key: o.keyId,
             order_id: o.orderId,
             amount: o.amount,
@@ -58,7 +65,7 @@ export async function openRazorpayCheckout(o: CheckoutOptions): Promise<Checkout
             description: o.description,
             prefill: o.prefill,
             theme: { color: '#2563eb' },
-            handler: (resp: any) => {
+            handler: (resp: RazorpaySuccess) => {
                 settled = true;
                 resolve({
                     paymentId: resp.razorpay_payment_id,
@@ -72,7 +79,7 @@ export async function openRazorpayCheckout(o: CheckoutOptions): Promise<Checkout
                 },
             },
         });
-        rzp.on('payment.failed', (resp: any) => {
+        rzp.on('payment.failed', (resp) => {
             settled = true;
             reject(new Error(resp?.error?.description || 'Payment failed. Please try again.'));
         });

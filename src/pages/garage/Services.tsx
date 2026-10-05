@@ -8,6 +8,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import {
     getMyGarage, getMyGarageServices, createGarageService, updateGarageService, deleteGarageService,
 } from '../../lib/data';
+import { useToast } from '../../components/Toast';
+import { errorMessage } from '../../lib/errors';
 
 interface Service {
     _id: string;
@@ -35,6 +37,7 @@ export default function GarageServices() {
 
     const navigate = useNavigate();
     const { userData } = useAuth();
+    const toast = useToast();
 
     useEffect(() => {
         if (!userData?._id) return;
@@ -90,15 +93,15 @@ export default function GarageServices() {
             }
             await loadServices(garageId);
             handleCloseModal();
-        } catch (err: any) {
-            setError(err?.message || 'Failed to save service');
+        } catch (err) {
+            setError(errorMessage(err, 'Failed to save service'));
         } finally {
             setSaving(false);
         }
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm('Are you sure you want to delete this service?')) return;
+        if (!(await toast.confirm('Delete this service from your catalog?', { confirmLabel: 'Delete', danger: true }))) return;
         try {
             await deleteGarageService(id);
             if (garageId) await loadServices(garageId);

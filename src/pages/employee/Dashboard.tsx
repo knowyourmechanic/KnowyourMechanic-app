@@ -8,7 +8,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import GarageMap from '../../components/GarageMap';
 import RoleSwitcher from '../../components/RoleSwitcher';
-import { getEmployeeDashboard } from '../../lib/data';
+import { getEmployeeDashboard, type EmployeeDashboard as EmployeeDashboardData } from '../../lib/data';
 
 interface GarageItem {
     _id: string;
@@ -36,8 +36,8 @@ interface MapGarage {
 export default function EmployeeDashboard() {
     const navigate = useNavigate();
     const { logout, userData } = useAuth();
-    const [profile, setProfile] = useState<any>(null);
-    const [stats, setStats] = useState<any>(null);
+    const [profile, setProfile] = useState<EmployeeDashboardData['profile']>(null);
+    const [stats, setStats] = useState<EmployeeDashboardData['stats']>(null);
     const [garages, setGarages] = useState<GarageItem[]>([]);
     const [mapGarages, setMapGarages] = useState<MapGarage[]>([]);
     const [loading, setLoading] = useState(true);
@@ -45,6 +45,7 @@ export default function EmployeeDashboard() {
 
     useEffect(() => {
         if (userData?._id) fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load when the key changes; the loader is also reused for manual refresh
     }, [userData?._id]);
 
     const fetchData = async () => {
@@ -52,8 +53,8 @@ export default function EmployeeDashboard() {
             const d = await getEmployeeDashboard(userData!._id);
             setProfile(d.profile);
             setStats(d.stats);
-            setGarages(d.garages as any);
-            setMapGarages(d.mapGarages as any);
+            setGarages(d.garages);
+            setMapGarages(d.mapGarages);
         } catch (err) {
             console.error('Employee fetch error:', err);
         } finally {

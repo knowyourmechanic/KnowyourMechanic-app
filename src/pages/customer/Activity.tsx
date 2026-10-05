@@ -4,6 +4,7 @@ import { Clock, Wrench, Loader2, Calendar, AlertCircle, ArrowLeft, Star, X, Chec
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { getCustomerServiceHistory, getMyReview, submitReview, submitReport } from '../../lib/data';
+import { useToast } from '../../components/Toast';
 
 interface ServiceRecord {
     _id: string;
@@ -58,9 +59,11 @@ export default function CustomerActivity() {
 
     const navigate = useNavigate();
     const { userData } = useAuth();
+    const toast = useToast();
 
     useEffect(() => {
         if (userData?.phoneNumber) fetchServiceHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load when the key changes; the loader is also reused for manual refresh
     }, [userData?.phoneNumber]);
 
     const fetchServiceHistory = async () => {
@@ -119,7 +122,7 @@ export default function CustomerActivity() {
             setReviewingGarageId(null);
         } catch (error) {
             console.error('Error submitting review:', error);
-            alert('Failed to submit review');
+            toast.error("Couldn't save your review. Please try again.");
         } finally {
             setSubmittingReview(false);
         }
@@ -152,7 +155,7 @@ export default function CustomerActivity() {
             setTimeout(() => setReportGarageId(null), 2000);
         } catch (err) {
             console.error('Error submitting report:', err);
-            alert('Failed to submit report. Please try again.');
+            toast.error("Couldn't send the report. Please try again.");
         } finally {
             setSubmittingReport(false);
         }

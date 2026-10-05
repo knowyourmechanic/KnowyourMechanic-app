@@ -13,6 +13,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getMyGarage, saveGarageBusinessInfo, saveGarageQr, getMyGarageQr, saveGaragePhoto } from '../../lib/data';
 import { compressImage } from '../../lib/image';
 import RoleSwitcher from '../../components/RoleSwitcher';
+import { errorMessage } from '../../lib/errors';
 
 
 interface BusinessInfo {
@@ -57,6 +58,7 @@ export default function GarageSettings() {
 
     useEffect(() => {
         if (userData?._id) fetchGarageDetails();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load when the key changes; the loader is also reused for manual refresh
     }, [userData?._id]);
 
     const fetchGarageDetails = async () => {
@@ -72,8 +74,8 @@ export default function GarageSettings() {
                     coordinates: [g.longitude ?? 73.8567, g.latitude ?? 18.5204],
                     serviceHours: g.service_hours || '9:00 AM - 8:00 PM',
                     workingDays: Array.isArray(g.working_days) && g.working_days.length ? g.working_days : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
-                    businessType: (g as any).business_type || 'individual',
-                    legalBusinessName: (g as any).legal_business_name || '',
+                    businessType: g.business_type || 'individual',
+                    legalBusinessName: g.legal_business_name || '',
                 });
                 if (g.photo_url) setPhotoUrl(g.photo_url);
 
@@ -114,8 +116,8 @@ export default function GarageSettings() {
             setGarageId(id);
             setSuccess('Business details saved successfully!');
             setTimeout(() => setSuccess(''), 3000);
-        } catch (err: any) {
-            setError(err.message || 'Failed to save');
+        } catch (err) {
+            setError(errorMessage(err, 'Failed to save'));
         } finally {
             setSaving(false);
         }
@@ -136,8 +138,8 @@ export default function GarageSettings() {
             setQrUrl(url);
             setSuccess('Payment QR updated successfully!');
             setTimeout(() => setSuccess(''), 3000);
-        } catch (err: any) {
-            setError(err.message || 'Failed to upload QR');
+        } catch (err) {
+            setError(errorMessage(err, 'Failed to upload QR'));
         } finally {
             setUploadingQr(false);
         }

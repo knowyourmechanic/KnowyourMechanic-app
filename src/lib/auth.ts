@@ -23,11 +23,6 @@ export async function sendOtp(phoneNumber: string): Promise<void> {
     }
 }
 
-// No auto-verification with SMS OTP (that was a Firebase-on-Android feature).
-export function isAutoVerified(): boolean {
-    return false;
-}
-
 // Verifies the OTP and returns the signed-in Supabase user.
 export async function verifyOtp(code: string): Promise<User> {
     if (!pendingPhone) {
@@ -47,9 +42,4 @@ export async function verifyOtp(code: string): Promise<User> {
 
 export async function signOut(): Promise<void> {
     await supabase.auth.signOut();
-}
-
-export async function getCurrentUser(): Promise<User | null> {
-    const { data } = await supabase.auth.getUser();
-    return data.user ?? null;
 }

@@ -14,6 +14,7 @@ const GarageOnboarding = lazy(() => import('./pages/garage/Onboarding'));
 const GarageDashboard = lazy(() => import('./pages/garage/Dashboard'));
 const GarageSettings = lazy(() => import('./pages/garage/Settings'));
 const GarageSupport = lazy(() => import('./pages/garage/Support'));
+const GarageServices = lazy(() => import('./pages/garage/Services'));
 const AdminDashboard = lazy(() => import('./pages/admin/Dashboard'));
 const AdminEmployees = lazy(() => import('./pages/admin/Employees'));
 const AdminEmployeeDetail = lazy(() => import('./pages/admin/EmployeeDetail'));
@@ -101,6 +102,7 @@ export default function App() {
           <Route path="/garage/dashboard" element={<ProtectedRoute requiredRole="garage"><GarageDashboard /></ProtectedRoute>} />
           <Route path="/garage/settings" element={<ProtectedRoute requiredRole="garage"><GarageSettings /></ProtectedRoute>} />
           <Route path="/garage/support" element={<ProtectedRoute requiredRole="garage"><GarageSupport /></ProtectedRoute>} />
+          <Route path="/garage/services" element={<ProtectedRoute requiredRole="garage"><GarageServices /></ProtectedRoute>} />
 
           {/* Admin Routes (Nested in Layout) */}
           <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminLayout /></ProtectedRoute>}>

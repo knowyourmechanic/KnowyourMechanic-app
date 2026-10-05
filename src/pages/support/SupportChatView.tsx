@@ -7,11 +7,14 @@ import {
     subscribeToTicketMessages, subscribeToTicket,
     type SupportTicket, type SupportMessage,
 } from '../../lib/data';
+import { useToast } from '../../components/Toast';
+import { errorMessage } from '../../lib/errors';
 
 export default function SupportChatView() {
     const { ticketId } = useParams<{ ticketId: string }>();
     const navigate = useNavigate();
     const { userData } = useAuth();
+    const toast = useToast();
     const [ticket, setTicket] = useState<SupportTicket | null>(null);
     const [messages, setMessages] = useState<SupportMessage[]>([]);
     const [loading, setLoading] = useState(true);
@@ -54,8 +57,8 @@ export default function SupportChatView() {
             const m = await sendSupportMessage(ticket.id, userData._id, body, 'support');
             addMessage(m);
             setInput('');
-        } catch (e: any) {
-            alert(e?.message || 'Failed to send');
+        } catch (e) {
+            toast.error(errorMessage(e, 'Failed to send'));
         } finally {
             setSending(false);
         }
@@ -67,8 +70,8 @@ export default function SupportChatView() {
         try {
             await resolveTicket(ticket.id);
             navigate('/support');
-        } catch (e: any) {
-            alert(e?.message || 'Failed to resolve');
+        } catch (e) {
+            toast.error(errorMessage(e, 'Failed to resolve'));
         } finally {
             setResolving(false);
         }

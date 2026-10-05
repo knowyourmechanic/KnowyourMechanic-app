@@ -2,19 +2,21 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
     Loader2, Flag, AlertTriangle, Shield, CheckCircle,
-    XCircle, Clock, ChevronDown, Building2, User
+    XCircle, Clock, ChevronDown, Building2, User,
+    type LucideIcon,
 } from 'lucide-react';
-import { getAdminReports, updateReportStatus } from '../../lib/data';
+import { getAdminReports, updateReportStatus, type ReportStatus } from '../../lib/data';
 
 const REASON_LABELS: Record<string, string> = {
     fraud: 'Fraud / Scam',
     overcharging: 'Overcharging',
     poor_service: 'Poor Service',
     harassment: 'Harassment',
+    service_not_received: 'Service not received',
     other: 'Other',
 };
 
-const STATUS_CONFIG: Record<string, { label: string; textClass: string; borderClass: string; icon: any; dotClass: string }> = {
+const STATUS_CONFIG: Record<string, { label: string; textClass: string; borderClass: string; icon: LucideIcon; dotClass: string }> = {
     pending: { label: 'Pending', textClass: 'text-amber-500', borderClass: 'border-amber-500/30 bg-amber-500/5', dotClass: 'bg-amber-500', icon: Clock },
     reviewing: { label: 'Reviewing', textClass: 'text-blue-400', borderClass: 'border-blue-500/30 bg-blue-500/5', dotClass: 'bg-blue-500', icon: Shield },
     resolved: { label: 'Resolved', textClass: 'text-emerald-500', borderClass: 'border-emerald-500/30 bg-emerald-500/5', dotClass: 'bg-emerald-500', icon: CheckCircle },
@@ -39,6 +41,7 @@ export default function AdminReports() {
 
     useEffect(() => {
         fetchReports();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load when the key changes; the loader is also reused for manual refresh
     }, [filter]);
 
     const fetchReports = async () => {
@@ -52,7 +55,7 @@ export default function AdminReports() {
         }
     };
 
-    const updateStatus = async (id: string, status: string) => {
+    const updateStatus = async (id: string, status: ReportStatus) => {
         setUpdating(id);
         try {
             await updateReportStatus(id, status);

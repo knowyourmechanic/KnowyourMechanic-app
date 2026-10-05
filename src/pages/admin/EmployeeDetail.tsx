@@ -6,7 +6,8 @@ import {
     Edit2, Trash2, X
 } from 'lucide-react';
 
-import { getEmployeeDetail, updateEmployee, deleteEmployee } from '../../lib/data';
+import { getEmployeeDetail, updateEmployee, deleteEmployee, type EmployeeDetailData } from '../../lib/data';
+import { useToast } from '../../components/Toast';
 
 interface GaragePerf {
     _id: string;
@@ -22,7 +23,8 @@ interface GaragePerf {
 export default function EmployeeDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const [data, setData] = useState<any>(null);
+    const toast = useToast();
+    const [data, setData] = useState<EmployeeDetailData | null>(null);
     const [loading, setLoading] = useState(true);
 
     // Edit Modal State
@@ -38,6 +40,7 @@ export default function EmployeeDetail() {
 
     useEffect(() => {
         fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load when the key changes; the loader is also reused for manual refresh
     }, [id]);
 
     const fetchData = async () => {
@@ -66,7 +69,7 @@ export default function EmployeeDetail() {
             fetchData();
         } catch (error) {
             console.error(error);
-            alert('Failed to update employee');
+            toast.error('Failed to update employee');
         } finally {
             setSaving(false);
         }
@@ -80,7 +83,7 @@ export default function EmployeeDetail() {
             navigate('/admin/employees');
         } catch (error) {
             console.error(error);
-            alert('Failed to delete employee');
+            toast.error('Failed to delete employee');
         } finally {
             setDeleting(false);
         }

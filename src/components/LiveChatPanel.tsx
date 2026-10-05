@@ -7,6 +7,8 @@ import {
     subscribeToTicketMessages, subscribeToTicket,
     type SupportMessage, type SupportTicket,
 } from '../lib/data';
+import { useToast } from './Toast';
+import { errorMessage } from '../lib/errors';
 
 interface Props {
     openerRole: 'customer' | 'garage';
@@ -16,6 +18,7 @@ interface Props {
 // Full-screen live chat between a customer/garage user and the support team.
 export default function LiveChatPanel({ openerRole, onClose }: Props) {
     const { userData } = useAuth();
+    const toast = useToast();
     const [ticket, setTicket] = useState<SupportTicket | null>(null);
     const [messages, setMessages] = useState<SupportMessage[]>([]);
     const [loading, setLoading] = useState(true);
@@ -61,8 +64,8 @@ export default function LiveChatPanel({ openerRole, onClose }: Props) {
             const msg = await sendSupportMessage(ticket.id, userData._id, body, 'user');
             addMessage(msg);
             setInput('');
-        } catch (e: any) {
-            alert(e?.message || 'Failed to send message');
+        } catch (e) {
+            toast.error(errorMessage(e, 'Failed to send message'));
         } finally {
             setSending(false);
         }

@@ -11,6 +11,7 @@ import {
     getMyReview, submitReview, deleteMyReview, submitReport, canCustomerReviewGarage,
 } from '../../lib/data';
 import { getOpenStatus, normalizeWorkingDays } from '../../lib/hours';
+import { useToast } from '../../components/Toast';
 
 interface Review {
     _id: string;
@@ -47,6 +48,7 @@ export default function GarageDetailPage() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const { userData } = useAuth();
+    const toast = useToast();
 
     const [garage, setGarage] = useState<GarageDetail | null>(null);
     const [reviews, setReviews] = useState<Review[]>([]);
@@ -74,6 +76,7 @@ export default function GarageDetailPage() {
         fetchGarageDetails();
         fetchReviews();
         fetchOfferedServices();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load when the key changes; the loader is also reused for manual refresh
     }, [id]);
 
     // Load the customer's own review + whether they may review (must have used the garage).
@@ -120,7 +123,7 @@ export default function GarageDetailPage() {
 
     const handleSubmitReview = async () => {
         if (reviewRating === 0) {
-            alert('Please select a rating');
+            toast.info('Tap a star to rate first.');
             return;
         }
         if (!id || !userData?._id) return;
@@ -134,7 +137,7 @@ export default function GarageDetailPage() {
             fetchGarageDetails();
         } catch (error) {
             console.error('Error submitting review:', error);
-            alert('Failed to submit review');
+            toast.error("Couldn't save your review. Please try again.");
         } finally {
             setSubmittingReview(false);
         }
@@ -142,7 +145,7 @@ export default function GarageDetailPage() {
 
     const handleDeleteReview = async () => {
         if (!myReview || !id || !userData?._id) return;
-        if (!confirm('Are you sure you want to delete your review?')) return;
+        if (!(await toast.confirm('Delete your review?', { confirmLabel: 'Delete', danger: true }))) return;
 
         try {
             await deleteMyReview(userData._id, id);
@@ -191,7 +194,7 @@ export default function GarageDetailPage() {
             }, 2000);
         } catch (err) {
             console.error('Error submitting report:', err);
-            alert('Failed to submit report. Please try again.');
+            toast.error("Couldn't send the report. Please try again.");
         } finally {
             setSubmittingReport(false);
         }

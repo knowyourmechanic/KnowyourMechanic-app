@@ -7,6 +7,8 @@ import {
     getOpenTickets, getMyClaimedTickets, claimTicket, subscribeToTicketQueue,
     type SupportTicket,
 } from '../../lib/data';
+import { useToast } from '../../components/Toast';
+import { errorMessage } from '../../lib/errors';
 
 function timeAgo(iso: string): string {
     const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -23,6 +25,7 @@ function openerLabel(t: SupportTicket): string {
 export default function SupportChats() {
     const navigate = useNavigate();
     const { userData } = useAuth();
+    const toast = useToast();
     const [pending, setPending] = useState<SupportTicket[]>([]);
     const [mine, setMine] = useState<SupportTicket[]>([]);
     const [loading, setLoading] = useState(true);
@@ -49,10 +52,10 @@ export default function SupportChats() {
         try {
             await claimTicket(id);
             navigate(`/support/chat/${id}`);
-        } catch (e: any) {
-            alert(e?.message === 'ticket already claimed'
+        } catch (e) {
+            toast.error(errorMessage(e) === 'ticket already claimed'
                 ? 'Another agent just claimed this chat.'
-                : (e?.message || 'Failed to claim chat'));
+                : errorMessage(e, 'Failed to claim chat'));
             load();
         } finally {
             setClaiming(null);

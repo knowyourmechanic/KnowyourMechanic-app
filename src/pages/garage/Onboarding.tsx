@@ -12,6 +12,7 @@ import LocationPicker from '../../components/LocationPicker';
 import { useAuth } from '../../contexts/AuthContext';
 import { getMyGarage, saveGarageBusinessInfo, saveGarageQr, completeGarageOnboarding, lookupReferralCode, saveGaragePhoto } from '../../lib/data';
 import { compressImage } from '../../lib/image';
+import { errorMessage } from '../../lib/errors';
 
 type Step = 'business' | 'qr' | 'success';
 
@@ -77,6 +78,7 @@ export default function GarageOnboardingWizard() {
 
     useEffect(() => {
         if (userData?._id) checkOnboardingStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load when the key changes; the loader is also reused for manual refresh
     }, [userData?._id]);
 
     const checkOnboardingStatus = async () => {
@@ -195,8 +197,8 @@ export default function GarageOnboardingWizard() {
             setGarageId(id);
             setFieldErrors({});
             setStep('qr');
-        } catch (e: any) {
-            setError(e.message || 'Failed to save');
+        } catch (e) {
+            setError(errorMessage(e, 'Failed to save'));
         } finally {
             setLoading(false);
         }
@@ -217,8 +219,8 @@ export default function GarageOnboardingWizard() {
             setFieldErrors({});
             setStep('success');
             setTimeout(() => navigate('/garage'), 2500);
-        } catch (e: any) {
-            setError(e.message || 'Failed to save');
+        } catch (e) {
+            setError(errorMessage(e, 'Failed to save'));
         } finally {
             setLoading(false);
         }
@@ -231,8 +233,8 @@ export default function GarageOnboardingWizard() {
             localStorage.setItem('garageOnboarded', 'true');
             setStep('success');
             setTimeout(() => navigate('/garage'), 2500);
-        } catch (e: any) {
-            setError(e.message || 'Network error');
+        } catch (e) {
+            setError(errorMessage(e, 'Network error'));
         } finally {
             setLoading(false);
         }

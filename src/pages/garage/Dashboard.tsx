@@ -65,6 +65,7 @@ export default function GarageDashboard() {
         if (userData?._id) {
             loadDashboard();
         }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load when the key changes; the loader is also reused for manual refresh
     }, [userData?._id]);
 
     // Loads the garage profile + its service records from Supabase.
@@ -155,7 +156,7 @@ export default function GarageDashboard() {
                 {/* Bottom Text Content */}
                 <div className="absolute bottom-0 left-0 right-0 p-6 z-10">
                     <h1 className="text-3xl font-black text-white mb-2 leading-tight">
-                        {garageName || (userData as any)?.name || 'Your Garage'}
+                        {garageName || 'Your Garage'}
                     </h1>
                     <div className="flex items-center gap-3">
                         {openNow ? (
@@ -214,7 +215,7 @@ export default function GarageDashboard() {
                                             <User className="w-10 h-10 text-white" />
                                         )}
                                     </div>
-                                    <h3 className="text-xl font-black">{garageName || (userData as any)?.name || 'Your Garage'}</h3>
+                                    <h3 className="text-xl font-black">{garageName || 'Your Garage'}</h3>
                                     <p className="text-blue-200 text-sm font-medium flex items-center gap-2 mt-1">
                                         <div className="w-2 h-2 rounded-full bg-green-400" />
                                         Active
@@ -239,6 +240,23 @@ export default function GarageDashboard() {
                                             <p className="text-slate-400 dark:text-[var(--app-muted)] text-xs">Edit garage details & photo</p>
                                         </div>
                                         <ChevronRight className="w-5 h-5 text-slate-300 dark:text-slate-600 group-hover:text-blue-500" />
+                                    </button>
+
+                                    <button
+                                        onClick={() => {
+                                            setShowProfilePanel(false);
+                                            navigate('/garage/services');
+                                        }}
+                                        className="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-slate-50 dark:hover:bg-[var(--app-bg)] transition-all group"
+                                    >
+                                        <div className="w-12 h-12 bg-amber-50 dark:bg-amber-950/40 rounded-xl flex items-center justify-center text-amber-600">
+                                            <Wrench className="w-5 h-5" />
+                                        </div>
+                                        <div className="flex-1 text-left">
+                                            <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">Services & prices</p>
+                                            <p className="text-slate-400 dark:text-[var(--app-muted)] text-xs">Shown on your page · one-tap when adding</p>
+                                        </div>
+                                        <ChevronRight className="w-5 h-5 text-slate-300 dark:text-slate-600 group-hover:text-amber-500" />
                                     </button>
 
                                     <button
