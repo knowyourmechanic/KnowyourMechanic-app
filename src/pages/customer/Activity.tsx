@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Clock, Wrench, Loader2, Calendar, AlertCircle, ArrowLeft, Star, X, Check, Edit2, Flag, Download, AlertTriangle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useI18n } from '../../i18n';
 import { useAuth } from '../../contexts/AuthContext';
 import { getCustomerServiceHistory, getMyReview, submitReview, submitReport } from '../../lib/data';
 import { useToast } from '../../components/Toast';
@@ -59,6 +60,7 @@ export default function CustomerActivity() {
 
     const navigate = useNavigate();
     const { userData } = useAuth();
+    const { t } = useI18n();
     const toast = useToast();
 
     useEffect(() => {
@@ -94,7 +96,7 @@ export default function CustomerActivity() {
             }
         } catch (err) {
             console.error('Error fetching service history:', err);
-            setError('Failed to load service history');
+            setError(t('activity.loadFailed'));
         } finally {
             setLoading(false);
         }
@@ -173,7 +175,7 @@ h1{font-size:22px;margin:0 0 4px}.muted{color:#64748b;font-size:13px}
 .row span:last-child{text-align:right}
 .total{font-weight:700;font-size:18px;border-bottom:none;padding-top:16px}
 .badge{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#16a34a}</style></head>
-<body><h1>KnowYourMechanic</h1><p class="muted">Service invoice · <span class="badge">OTP-verified</span></p><div style="margin:24px 0">
+<body><h1>KnowYourMechanic</h1><p class="muted">Service invoice · <span class="badge">Confirmed by customer OTP</span></p><div style="margin:24px 0">
 <div class="row"><span class="muted">Invoice no.</span><span>${escapeHtml(invoiceId)}</span></div>
 <div class="row"><span class="muted">Date</span><span>${escapeHtml(formatDate(service.createdAt))}</span></div>
 <div class="row"><span class="muted">Garage</span><span>${escapeHtml(service.garageId?.name || 'Garage')}</span></div>
@@ -201,10 +203,10 @@ ${service.vehicleNumber ? `<div class="row"><span class="muted">Vehicle</span><s
                     className="flex items-center gap-2 text-white/80 hover:text-white mb-4"
                 >
                     <ArrowLeft className="w-5 h-5" />
-                    <span className="font-medium">Back</span>
+                    <span className="font-medium">{t('common.back')}</span>
                 </button>
-                <h1 className="text-2xl font-black">Activity</h1>
-                <p className="text-blue-200 text-sm">Your service history</p>
+                <h1 className="text-2xl font-black">{t('activity.title')}</h1>
+                <p className="text-blue-200 text-sm">{t('activity.subtitle')}</p>
             </header>
 
             <div className="px-6">
@@ -213,6 +215,15 @@ ${service.vehicleNumber ? `<div class="row"><span class="muted">Vehicle</span><s
                         <AlertCircle className="w-5 h-5" />
                         {error}
                     </div>
+                )}
+
+                {services.length > 0 && (
+                    <button
+                        onClick={() => navigate('/customer/vehicles')}
+                        className="w-full mb-4 rounded-2xl px-4 py-3 bg-white dark:bg-[var(--app-surface)] border border-slate-100 dark:border-[var(--app-border)] text-blue-600 font-bold text-sm flex items-center justify-between"
+                    >
+                        {t('activity.passportLink')} <span aria-hidden="true">→</span>
+                    </button>
                 )}
 
                 <div className="space-y-4">
@@ -393,9 +404,9 @@ ${service.vehicleNumber ? `<div class="row"><span class="muted">Vehicle</span><s
                             <div className="w-20 h-20 bg-slate-100 dark:bg-[var(--app-surface-2)] rounded-3xl flex items-center justify-center text-slate-300 dark:text-slate-600 mb-6">
                                 <Clock className="w-10 h-10" />
                             </div>
-                            <h3 className="text-xl font-bold text-slate-400 dark:text-[var(--app-muted)]">No services yet</h3>
-                            <p className="text-slate-300 dark:text-slate-600 font-medium mt-2">
-                                Your service history will appear here
+                            <h3 className="text-xl font-bold text-slate-400 dark:text-[var(--app-muted)]">{t('activity.emptyTitle')}</h3>
+                            <p className="text-slate-400 dark:text-[var(--app-muted)] font-medium mt-2 px-6">
+                                {t('activity.emptyBody')}
                             </p>
                         </div>
                     )}

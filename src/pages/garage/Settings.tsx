@@ -13,6 +13,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getMyGarage, saveGarageBusinessInfo, saveGarageQr, getMyGarageQr, saveGaragePhoto } from '../../lib/data';
 import { compressImage } from '../../lib/image';
 import RoleSwitcher from '../../components/RoleSwitcher';
+import LanguagePicker from '../../components/LanguagePicker';
 import { errorMessage } from '../../lib/errors';
 
 
@@ -398,6 +399,7 @@ export default function GarageSettings() {
             </div>
 
             <div className="px-6 mt-4">
+                <LanguagePicker tone="card" />
                 <RoleSwitcher />
             </div>
         </div>

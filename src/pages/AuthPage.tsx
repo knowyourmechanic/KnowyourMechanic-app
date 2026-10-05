@@ -7,7 +7,10 @@ import { supabase } from '../lib/supabase';
 import { getMyRoles, type AppRole } from '../lib/data';
 import { ROLE_META, routeForRole } from '../lib/roles';
 import { useAuth } from '../contexts/AuthContext';
+import { useI18n } from '../i18n';
+import LanguagePicker from '../components/LanguagePicker';
 import { errorMessage } from '../lib/errors';
+import { haptic } from '../lib/haptics';
 
 type Step = 'phone' | 'otp' | 'role' | 'choose';
 
@@ -23,6 +26,7 @@ export default function AuthPage() {
     const [linkedProfile, setLinkedProfile] = useState<{ id: string; auth_user_id: string; phone_number: string; role: AppRole } | null>(null);
 
     const navigate = useNavigate();
+    const { t } = useI18n();
     const { setUserData, setUser, refreshRoles } = useAuth();
 
     // Sets the active-role userData and routes to the matching home screen.
@@ -37,7 +41,7 @@ export default function AuthPage() {
     const handleSendOtp = async (e: React.FormEvent) => {
         e.preventDefault();
         if (phone.length < 10) {
-            setError('Please enter a valid 10-digit phone number');
+            setError(t('auth.invalidPhone'));
             return;
         }
 
@@ -48,7 +52,7 @@ export default function AuthPage() {
             await sendOtp(phone);
             setStep('otp');
         } catch (err) {
-            setError(errorMessage(err, 'Failed to send OTP. Please try again.'));
+            setError(errorMessage(err, t('auth.sendFailed')));
         } finally {
             setLoading(false);
         }
@@ -57,7 +61,7 @@ export default function AuthPage() {
     const handleVerifyOtp = async (e: React.FormEvent) => {
         e.preventDefault();
         if (otp.length < 6) {
-            setError('Please enter the 6-digit code');
+            setError(t('auth.otpInvalid'));
             return;
         }
 
@@ -92,7 +96,8 @@ export default function AuthPage() {
             // No profile yet — new user, choose a role.
             setStep('role');
         } catch (err) {
-            setError(errorMessage(err, 'Invalid OTP code'));
+            haptic('error');
+            setError(errorMessage(err, t('auth.verifyFailed')));
         } finally {
             setLoading(false);
         }
@@ -134,7 +139,7 @@ export default function AuthPage() {
 
             await enterAsRole(role, row);
         } catch (err) {
-            setError(errorMessage(err, 'Error creating profile'));
+            setError(errorMessage(err, t('auth.profileFailed')));
         } finally {
             setLoading(false);
         }
@@ -162,13 +167,13 @@ export default function AuthPage() {
                                     KnowyourMechanic
                                 </h1>
                                 <p className="text-slate-500 dark:text-[var(--app-muted)] text-lg">
-                                    Trusted mechanics at your fingertips
+                                    {t('auth.tagline')}
                                 </p>
                             </div>
 
                             <form onSubmit={handleSendOtp} className="space-y-6">
                                 <div className="space-y-2">
-                                    <label className="text-sm font-semibold text-slate-600 dark:text-[var(--app-muted)] ml-1">Phone Number</label>
+                                    <label className="text-sm font-semibold text-slate-600 dark:text-[var(--app-muted)] ml-1">{t('auth.phoneLabel')}</label>
                                     <div className="relative group">
                                         <div className="absolute left-4 top-1/2 -translate-y-1/2 flex items-center gap-2 border-r border-slate-200 dark:border-[var(--app-border)] pr-3">
                                             <span className="text-slate-500 dark:text-[var(--app-muted)] font-medium">+91</span>
@@ -194,12 +199,16 @@ export default function AuthPage() {
                                         <Loader2 className="w-6 h-6 animate-spin" />
                                     ) : (
                                         <>
-                                            Continue
+                                            {t('auth.continue')}
                                             <ChevronRight className="w-5 h-5" />
                                         </>
                                     )}
                                 </button>
                             </form>
+
+                            <div className="mt-8">
+                                <LanguagePicker />
+                            </div>
                         </div>
 
                         <div className="mt-auto text-center py-6">
@@ -220,16 +229,20 @@ export default function AuthPage() {
                     >
                         <button
                             onClick={() => setStep('phone')}
+                            aria-label={t('auth.changeNumber')}
                             className="w-10 h-10 rounded-full border border-slate-200 dark:border-[var(--app-border)] flex items-center justify-center text-slate-400 dark:text-[var(--app-muted)] self-start mb-8 transition-colors active:bg-slate-100 dark:active:bg-[var(--app-surface-2)]"
                         >
                             <ArrowLeft className="w-5 h-5" />
                         </button>
 
                         <div className="mb-10">
-                            <h2 className="text-3xl font-bold text-slate-900 dark:text-[var(--app-text)] mb-3">Check your phone</h2>
+                            <h2 className="text-3xl font-bold text-slate-900 dark:text-[var(--app-text)] mb-3">{t('auth.otpTitle')}</h2>
                             <p className="text-slate-500 dark:text-[var(--app-muted)] text-lg">
-                                We've sent a 6-digit code to <span className="text-blue-600 font-semibold">+91 {phone}</span>
+                                {t('auth.otpSent', { phone })}
                             </p>
+                            <button type="button" onClick={() => setStep('phone')} className="mt-2 text-blue-600 font-semibold text-sm">
+                                {t('auth.changeNumber')}
+                            </button>
                         </div>
 
                         <form onSubmit={handleVerifyOtp} className="space-y-8">
@@ -251,7 +264,7 @@ export default function AuthPage() {
                                 disabled={loading || otp.length < 6}
                                 className="w-full h-16 btn-premium rounded-2xl font-bold text-lg flex items-center justify-center gap-2 disabled:opacity-40 transition-all shadow-xl shadow-blue-500/20"
                             >
-                                {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : 'Verify Code'}
+                                {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : t('auth.verify')}
                             </button>
 
                             <button
@@ -273,8 +286,7 @@ export default function AuthPage() {
                         className="flex-1 flex flex-col justify-center max-w-sm mx-auto w-full"
                     >
                         <div className="text-center mb-12">
-                            <h2 className="text-3xl font-extrabold text-slate-900 dark:text-[var(--app-text)] mb-3">Join us as</h2>
-                            <p className="text-slate-500 dark:text-[var(--app-muted)]">Choose your account type to get started</p>
+                            <h2 className="text-3xl font-extrabold text-slate-900 dark:text-[var(--app-text)] mb-3">{t('auth.roleTitle')}</h2>
                         </div>
 
                         <div className="space-y-6">
@@ -287,8 +299,8 @@ export default function AuthPage() {
                                     <Car className="w-8 h-8" />
                                 </div>
                                 <div className="flex-1">
-                                    <h3 className="font-bold text-xl text-slate-900 dark:text-[var(--app-text)]">Customer</h3>
-                                    <p className="text-slate-500 dark:text-[var(--app-muted)] text-sm">Find local experts</p>
+                                    <h3 className="font-bold text-xl text-slate-900 dark:text-[var(--app-text)]">{t('auth.roleCustomer')}</h3>
+                                    <p className="text-slate-500 dark:text-[var(--app-muted)] text-sm">{t('auth.roleCustomerSub')}</p>
                                 </div>
                                 <ChevronRight className="w-6 h-6 text-slate-300 dark:text-slate-600 group-hover:text-blue-600 transition-colors" />
                             </button>
@@ -302,8 +314,8 @@ export default function AuthPage() {
                                     <Wrench className="w-8 h-8" />
                                 </div>
                                 <div className="flex-1">
-                                    <h3 className="font-bold text-xl text-slate-900 dark:text-[var(--app-text)]">Garage Owner</h3>
-                                    <p className="text-slate-500 dark:text-[var(--app-muted)] text-sm">Grow your business</p>
+                                    <h3 className="font-bold text-xl text-slate-900 dark:text-[var(--app-text)]">{t('auth.roleGarage')}</h3>
+                                    <p className="text-slate-500 dark:text-[var(--app-muted)] text-sm">{t('auth.roleGarageSub')}</p>
                                 </div>
                                 <ChevronRight className="w-6 h-6 text-slate-300 dark:text-slate-600 group-hover:text-blue-600 transition-colors" />
                             </button>
@@ -321,8 +333,7 @@ export default function AuthPage() {
                         className="flex-1 flex flex-col justify-center max-w-sm mx-auto w-full"
                     >
                         <div className="text-center mb-12">
-                            <h2 className="text-3xl font-extrabold text-slate-900 dark:text-[var(--app-text)] mb-3">Continue as</h2>
-                            <p className="text-slate-500 dark:text-[var(--app-muted)]">This number has more than one account</p>
+                            <h2 className="text-3xl font-extrabold text-slate-900 dark:text-[var(--app-text)] mb-3">{t('auth.chooseTitle')}</h2>
                         </div>
 
                         <div className="space-y-4">

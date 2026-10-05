@@ -5,10 +5,15 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { getCustomerProfile, saveCustomerProfile } from '../../lib/data';
 import RoleSwitcher from '../../components/RoleSwitcher';
+import LanguagePicker from '../../components/LanguagePicker';
+import { useToast } from '../../components/Toast';
+import { useI18n } from '../../i18n';
 
 export default function CustomerProfile() {
     const navigate = useNavigate();
     const { userData } = useAuth();
+    const { t } = useI18n();
+    const toast = useToast();
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
     const [loadingProfile, setLoadingProfile] = useState(true);
@@ -37,8 +42,8 @@ export default function CustomerProfile() {
             await saveCustomerProfile(userData._id, profile);
             setSaved(true);
             setTimeout(() => setSaved(false), 2000);
-        } catch (err) {
-            console.error('Failed to save profile:', err);
+        } catch {
+            toast.error(t('profile.saveFailed'));
         } finally {
             setSaving(false);
         }
@@ -61,15 +66,15 @@ export default function CustomerProfile() {
                     className="flex items-center gap-2 text-white/80 hover:text-white mb-4"
                 >
                     <ArrowLeft className="w-5 h-5" />
-                    <span className="font-medium">Back</span>
+                    <span className="font-medium">{t('common.back')}</span>
                 </button>
                 <div className="flex items-center gap-4">
                     <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center">
                         <User className="w-8 h-8" />
                     </div>
                     <div>
-                        <h1 className="text-2xl font-black">My Profile</h1>
-                        <p className="text-blue-200 text-sm">Personalize your experience</p>
+                        <h1 className="text-2xl font-black">{t('profile.title')}</h1>
+                        <p className="text-blue-200 text-sm">{t('profile.subtitle')}</p>
                     </div>
                 </div>
             </header>
@@ -79,10 +84,10 @@ export default function CustomerProfile() {
                 <div className="bg-white dark:bg-[var(--app-surface)] rounded-2xl p-5 shadow-sm border border-slate-100 dark:border-[var(--app-border)]">
                     <h3 className="font-bold text-slate-900 dark:text-[var(--app-text)] mb-4 flex items-center gap-2">
                         <User className="w-4 h-4 text-blue-600" />
-                        Personal Info
+                        {t('profile.personal')}
                     </h3>
                     <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-[var(--app-muted)] mb-2">Your Name</label>
+                        <label className="block text-sm font-medium text-slate-600 dark:text-[var(--app-muted)] mb-2">{t('profile.name')}</label>
                         <input
                             type="text"
                             value={profile.name}
@@ -97,12 +102,12 @@ export default function CustomerProfile() {
                 <div className="bg-white dark:bg-[var(--app-surface)] rounded-2xl p-5 shadow-sm border border-slate-100 dark:border-[var(--app-border)]">
                     <h3 className="font-bold text-slate-900 dark:text-[var(--app-text)] mb-4 flex items-center gap-2">
                         <Car className="w-4 h-4 text-blue-600" />
-                        Vehicle Info
+                        {t('profile.vehicle')}
                     </h3>
                     <div className="space-y-4">
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className="block text-xs font-medium text-slate-500 dark:text-[var(--app-muted)] mb-1">Make</label>
+                                <label className="block text-xs font-medium text-slate-500 dark:text-[var(--app-muted)] mb-1">{t('profile.make')}</label>
                                 <input
                                     type="text"
                                     value={profile.vehicleMake}
@@ -112,7 +117,7 @@ export default function CustomerProfile() {
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-medium text-slate-500 dark:text-[var(--app-muted)] mb-1">Model</label>
+                                <label className="block text-xs font-medium text-slate-500 dark:text-[var(--app-muted)] mb-1">{t('profile.model')}</label>
                                 <input
                                     type="text"
                                     value={profile.vehicleModel}
@@ -124,7 +129,7 @@ export default function CustomerProfile() {
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className="block text-xs font-medium text-slate-500 dark:text-[var(--app-muted)] mb-1">Year</label>
+                                <label className="block text-xs font-medium text-slate-500 dark:text-[var(--app-muted)] mb-1">{t('profile.year')}</label>
                                 <input
                                     type="text"
                                     value={profile.vehicleYear}
@@ -134,7 +139,7 @@ export default function CustomerProfile() {
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-medium text-slate-500 dark:text-[var(--app-muted)] mb-1">Number Plate</label>
+                                <label className="block text-xs font-medium text-slate-500 dark:text-[var(--app-muted)] mb-1">{t('profile.number')}</label>
                                 <input
                                     type="text"
                                     value={profile.vehicleNumber}
@@ -162,15 +167,17 @@ export default function CustomerProfile() {
                     ) : saved ? (
                         <>
                             <Check className="w-5 h-5" />
-                            Saved!
+                            {t('profile.saved')}
                         </>
                     ) : (
                         <>
                             <Save className="w-5 h-5" />
-                            Save Profile
+                            {t('profile.save')}
                         </>
                     )}
                 </motion.button>
+
+                <LanguagePicker tone="card" />
 
                 <RoleSwitcher />
             </div>

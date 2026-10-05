@@ -8,7 +8,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import {
     getGaragePublic, getGarageReviews, getGarageOfferedServices,
-    getMyReview, submitReview, deleteMyReview, submitReport, canCustomerReviewGarage,
+    getMyReview, submitReview, deleteMyReview, submitReport, canCustomerReviewGarage, getGarageServiceCounts,
 } from '../../lib/data';
 import { getOpenStatus, normalizeWorkingDays } from '../../lib/hours';
 import { useToast } from '../../components/Toast';
@@ -60,6 +60,7 @@ export default function GarageDetailPage() {
     const [reviewComment, setReviewComment] = useState('');
     const [submittingReview, setSubmittingReview] = useState(false);
     const [loading, setLoading] = useState(true);
+    const [jobsDone, setJobsDone] = useState(0);
 
     // Service portfolio
     const [offeredServices, setOfferedServices] = useState<OfferedService[]>([]);
@@ -76,6 +77,7 @@ export default function GarageDetailPage() {
         fetchGarageDetails();
         fetchReviews();
         fetchOfferedServices();
+        getGarageServiceCounts([id]).then((m) => setJobsDone(m.get(id) ?? 0)).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load when the key changes; the loader is also reused for manual refresh
     }, [id]);
 
@@ -264,13 +266,22 @@ export default function GarageDetailPage() {
                     <h1 className="text-2xl font-black text-slate-900 dark:text-[var(--app-text)] mb-2">{garage.name}</h1>
 
                     <div className="flex items-center gap-2 mb-4">
-                        <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-950/40 px-2 py-1 rounded-lg">
-                            <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-                            <span className="text-sm font-bold text-amber-700 dark:text-amber-300">
-                                {garage.rating.toFixed(1)}
-                            </span>
-                        </div>
-                        <span className="text-slate-400 dark:text-[var(--app-muted)] text-sm">({garage.totalReviews} reviews)</span>
+                        {garage.totalReviews > 0 ? (
+                            <>
+                                <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-950/40 px-2 py-1 rounded-lg">
+                                    <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+                                    <span className="text-sm font-bold text-amber-700 dark:text-amber-300">
+                                        {garage.rating.toFixed(1)}
+                                    </span>
+                                </div>
+                                <span className="text-slate-400 dark:text-[var(--app-muted)] text-sm">({garage.totalReviews} reviews)</span>
+                            </>
+                        ) : (
+                            <span className="text-sm font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-1 rounded-lg">New</span>
+                        )}
+                        {jobsDone > 0 && (
+                            <span className="text-slate-500 dark:text-[var(--app-muted)] text-sm">· {jobsDone} jobs on KYM</span>
+                        )}
                     </div>
 
                     <div className="space-y-3">

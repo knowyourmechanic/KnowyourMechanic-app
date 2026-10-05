@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ROLE_META, routeForRole } from '../lib/roles';
 import { addMyRole, type AppRole } from '../lib/data';
+import { useI18n } from '../i18n';
 
 // Lets a user who holds more than one role switch dashboards without logging
 // out, and lets a customer number register a garage (or a garage owner use the
@@ -17,6 +18,7 @@ export default function RoleSwitcher({ variant = 'card' }: { variant?: 'card' | 
     const [open, setOpen] = useState(false);
     const [busy, setBusy] = useState<AppRole | null>(null);
     const [error, setError] = useState('');
+    const { t } = useI18n();
 
     if (!userData) return null;
     const current = userData.role;
@@ -64,7 +66,7 @@ export default function RoleSwitcher({ variant = 'card' }: { variant?: 'card' | 
                     className="flex items-center gap-3 px-3 py-2.5 w-full rounded-lg text-sm font-medium text-zinc-400 hover:text-white hover:bg-zinc-900/50 transition-colors"
                 >
                     <Repeat className="w-4 h-4 text-zinc-500" />
-                    Switch role
+                    {t('roles.switch')}
                 </button>
             ) : (
                 <button
@@ -75,9 +77,9 @@ export default function RoleSwitcher({ variant = 'card' }: { variant?: 'card' | 
                         <Repeat className="w-5 h-5" />
                     </div>
                     <div className="flex-1 text-left">
-                        <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">{availableRoles.length > 1 ? 'Switch role' : addable[0] === 'garage' ? 'Own a garage?' : 'Use KYM as a customer'}</p>
+                        <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">{availableRoles.length > 1 ? t('roles.switch') : addable[0] === 'garage' ? t('roles.ownGarage') : t('roles.useCustomer')}</p>
                         <p className="text-slate-500 dark:text-[var(--app-muted)] text-sm">
-                            {availableRoles.length > 1 ? `Currently: ${ROLE_META[current]?.label ?? current}` : addable[0] === 'garage' ? 'List it on KnowYourMechanic with this number' : 'Find garages & see your service history'}
+                            {availableRoles.length > 1 ? t('roles.current', { role: ROLE_META[current]?.label ?? current }) : addable[0] === 'garage' ? t('roles.ownGarageSub') : t('roles.useCustomerSub')}
                         </p>
                     </div>
                     <ChevronRight className="w-5 h-5 text-slate-300 dark:text-slate-600" />
@@ -98,7 +100,7 @@ export default function RoleSwitcher({ variant = 'card' }: { variant?: 'card' | 
                             onClick={(e) => e.stopPropagation()}
                         >
                             <div className="flex items-center justify-between mb-5">
-                                <h2 className="text-xl font-black text-slate-900 dark:text-[var(--app-text)]">Your roles</h2>
+                                <h2 className="text-xl font-black text-slate-900 dark:text-[var(--app-text)]">{t('roles.yours')}</h2>
                                 <button onClick={() => setOpen(false)} className="text-slate-400 dark:text-[var(--app-muted)] active:scale-90 transition-transform">
                                     <X className="w-6 h-6" />
                                 </button>
@@ -148,8 +150,8 @@ export default function RoleSwitcher({ variant = 'card' }: { variant?: 'card' | 
                                                 <Icon className="w-6 h-6" />
                                             </div>
                                             <div className="flex-1">
-                                                <h3 className="font-bold text-slate-900 dark:text-[var(--app-text)]">{role === 'garage' ? 'Register your garage' : 'Add customer access'}</h3>
-                                                <p className="text-slate-500 dark:text-[var(--app-muted)] text-sm">Same number, no new account</p>
+                                                <h3 className="font-bold text-slate-900 dark:text-[var(--app-text)]">{role === 'garage' ? t('roles.registerGarage') : t('roles.addCustomer')}</h3>
+                                                <p className="text-slate-500 dark:text-[var(--app-muted)] text-sm">{t('roles.sameNumber')}</p>
                                             </div>
                                             {busy === role ? <Loader2 className="w-5 h-5 animate-spin text-blue-600" /> : <ChevronRight className="w-5 h-5 text-blue-600" />}
                                         </button>

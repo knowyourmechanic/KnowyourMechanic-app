@@ -36,3 +36,19 @@ Mobile: `npm run build && npx cap sync`, then open `android/` or `ios/`.
 
 `customer`, `garage` (self-service — one number can hold both), and
 `admin`, `employee`, `support` (granted by an admin only).
+
+## Languages
+
+English, Hindi and Marathi (`src/i18n`). English is the source of truth; any
+key missing from `hi.ts`/`mr.ts` falls back to English. Numbers always use
+Latin digits. Have a native speaker review the Hindi/Marathi copy.
+
+## Customer features (no per-message cost)
+
+- **Confirm or decline**: a service logged against your number shows up in the
+  app with its details before you share the OTP; "I didn't get this service"
+  cancels it and files a report.
+- **Vehicle Service Passport** (`/customer/vehicles`): every confirmed service
+  per vehicle, a 6-month service reminder (computed on-device), and a
+  revocable share link (`/v/<token>`, public, no names/numbers/amounts). Set
+  `VITE_PUBLIC_WEB_URL` so the native app can build these links.

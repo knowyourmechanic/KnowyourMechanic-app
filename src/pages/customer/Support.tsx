@@ -11,7 +11,7 @@ const faqs = [
     },
     {
         question: 'How do I know if a garage is trustworthy?',
-        answer: 'Look for the star rating, number of reviews, and total services completed. Garages with higher ratings and more services have a proven track record.'
+        answer: 'Look at the star rating, the number of reviews and the jobs completed on KYM. Only customers who confirmed a service with an OTP can review a garage, so ratings come from real visits. KYM does not inspect or certify garages.'
     },
     {
         question: 'How is my service recorded?',

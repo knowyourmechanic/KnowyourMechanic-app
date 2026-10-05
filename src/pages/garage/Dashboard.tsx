@@ -12,6 +12,9 @@ import AddServiceModal from '../../components/AddServiceModal';
 import FeeSettlementCard from '../../components/FeeSettlementCard';
 import { DashboardSkeleton } from '../../components/Loaders';
 import { getOpenStatus } from '../../lib/hours';
+import EarningsCard from '../../components/EarningsCard';
+import { useI18n } from '../../i18n';
+import type { MessageKey } from '../../i18n/en';
 
 interface ServiceRecord {
     _id: string;
@@ -26,13 +29,16 @@ interface ServiceRecord {
 }
 
 // In-flight records can be resumed (OTP / payment) from the list.
-const STATUS_META: Record<string, { label: string; tone: string }> = {
-    pending_otp: { label: 'Awaiting OTP', tone: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300' },
-    otp_verified: { label: 'Collect payment', tone: 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300' },
-    payment_pending: { label: 'Collect payment', tone: 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300' },
-    completed: { label: 'Completed', tone: 'bg-green-50 dark:bg-green-950/40 text-green-700 dark:text-green-300' },
-    cancelled: { label: 'Cancelled', tone: 'bg-slate-100 dark:bg-[var(--app-surface-2)] text-slate-500' },
+const STATUS_TONE: Record<string, string> = {
+    pending_otp: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300',
+    otp_verified: 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300',
+    payment_pending: 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300',
+    completed: 'bg-green-50 dark:bg-green-950/40 text-green-700 dark:text-green-300',
+    cancelled: 'bg-slate-100 dark:bg-[var(--app-surface-2)] text-slate-500',
 };
+const STATUS_KEYS = ['pending_otp', 'otp_verified', 'payment_pending', 'completed', 'cancelled'] as const;
+const statusKey = (s: string): MessageKey =>
+    (STATUS_KEYS as readonly string[]).includes(s) ? (`garage.status.${s}` as MessageKey) : 'garage.status.completed';
 const isResumable = (status: string) => status === 'pending_otp' || status === 'otp_verified';
 
 
@@ -43,7 +49,7 @@ export default function GarageDashboard() {
     const [showAllServices, setShowAllServices] = useState(false);
     const [showProfilePanel, setShowProfilePanel] = useState(false);
     const [loading, setLoading] = useState(true);
-    const [stats, setStats] = useState({ pending: 0, completed: 0, todayEarnings: 0, rating: 0, totalReviews: 0 });
+    const [stats, setStats] = useState({ pending: 0, completed: 0, rating: 0, totalReviews: 0 });
     const [showAddService, setShowAddService] = useState(false);
     const [resumeRecord, setResumeRecord] = useState<ServiceRecord | null>(null);
     const resume = useMemo(
@@ -60,6 +66,7 @@ export default function GarageDashboard() {
 
     const navigate = useNavigate();
     const { userData, logout } = useAuth();
+    const { t, locale } = useI18n();
 
     useEffect(() => {
         if (userData?._id) {
@@ -102,12 +109,10 @@ export default function GarageDashboard() {
             createdAt: r.created_at,
         }));
         setServices(mapped);
-        const today = new Date().toDateString();
         const completed = mapped.filter((m) => m.status === 'completed');
         setStats({
             pending: mapped.filter((m) => isResumable(m.status)).length,
             completed: completed.length,
-            todayEarnings: completed.filter((m) => new Date(m.createdAt).toDateString() === today).reduce((sum, m) => sum + m.amount, 0),
             rating,
             totalReviews,
         });
@@ -162,17 +167,17 @@ export default function GarageDashboard() {
                         {openNow ? (
                             <div className="px-3 py-1 rounded-full bg-green-500/20 backdrop-blur-sm border border-green-500/30 text-green-400 text-xs font-bold uppercase tracking-wider flex items-center gap-2">
                                 <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                                Open Now
+                                {t('garage.openNow')}
                             </div>
                         ) : (
                             <div className="px-3 py-1 rounded-full bg-red-500/20 backdrop-blur-sm border border-red-500/30 text-red-400 text-xs font-bold uppercase tracking-wider flex items-center gap-2">
                                 <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
-                                Closed
+                                {t('garage.closed')}
                             </div>
                         )}
                         <div className="px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/10 text-white/90 text-xs font-bold flex items-center gap-1.5">
                             <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                            {stats.rating > 0 ? `${stats.rating.toFixed(1)} Rating` : 'No Ratings'}
+                            {stats.rating > 0 ? t('garage.ratingValue', { rating: stats.rating.toFixed(1) }) : t('garage.noRatings')}
                         </div>
                     </div>
                 </div>
@@ -236,8 +241,8 @@ export default function GarageDashboard() {
                                             <Edit className="w-5 h-5" />
                                         </div>
                                         <div className="flex-1 text-left">
-                                            <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">Profile Settings</p>
-                                            <p className="text-slate-400 dark:text-[var(--app-muted)] text-xs">Edit garage details & photo</p>
+                                            <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">{t('garage.menuSettings')}</p>
+                                            <p className="text-slate-400 dark:text-[var(--app-muted)] text-xs">{t('garage.menuSettingsSub')}</p>
                                         </div>
                                         <ChevronRight className="w-5 h-5 text-slate-300 dark:text-slate-600 group-hover:text-blue-500" />
                                     </button>
@@ -253,8 +258,8 @@ export default function GarageDashboard() {
                                             <Wrench className="w-5 h-5" />
                                         </div>
                                         <div className="flex-1 text-left">
-                                            <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">Services & prices</p>
-                                            <p className="text-slate-400 dark:text-[var(--app-muted)] text-xs">Shown on your page · one-tap when adding</p>
+                                            <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">{t('garage.menuServices')}</p>
+                                            <p className="text-slate-400 dark:text-[var(--app-muted)] text-xs">{t('garage.menuServicesSub')}</p>
                                         </div>
                                         <ChevronRight className="w-5 h-5 text-slate-300 dark:text-slate-600 group-hover:text-amber-500" />
                                     </button>
@@ -270,8 +275,8 @@ export default function GarageDashboard() {
                                             <Headphones className="w-5 h-5" />
                                         </div>
                                         <div className="flex-1 text-left">
-                                            <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">Support</p>
-                                            <p className="text-slate-400 dark:text-[var(--app-muted)] text-xs">Get help & contact us</p>
+                                            <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">{t('garage.menuSupport')}</p>
+                                            <p className="text-slate-400 dark:text-[var(--app-muted)] text-xs">{t('garage.menuSupportSub')}</p>
                                         </div>
                                         <ChevronRight className="w-5 h-5 text-slate-300 dark:text-slate-600 group-hover:text-green-500" />
                                     </button>
@@ -284,7 +289,7 @@ export default function GarageDashboard() {
                                         className="w-full flex items-center gap-4 p-4 rounded-2xl bg-red-50 dark:bg-red-950/40 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/40 transition-all"
                                     >
                                         <LogOut className="w-5 h-5" />
-                                        <span className="font-bold">Logout</span>
+                                        <span className="font-bold">{t('common.logout')}</span>
                                     </button>
                                 </div>
                             </motion.div>
@@ -299,14 +304,14 @@ export default function GarageDashboard() {
                             <Wrench className="w-5 h-5" />
                         </div>
                         <p className="text-2xl font-black text-slate-900 dark:text-[var(--app-text)]">{stats.completed}</p>
-                        <p className="text-slate-400 dark:text-[var(--app-muted)] text-[10px] font-bold uppercase">Completed · ₹{stats.todayEarnings.toLocaleString('en-IN')} today</p>
+                        <p className="text-slate-400 dark:text-[var(--app-muted)] text-[10px] font-bold uppercase">{t('garage.completed')}</p>
                     </div>
                     <div className="bg-white dark:bg-[var(--app-surface)] rounded-2xl border border-slate-100 dark:border-[var(--app-border)] p-4 flex flex-col items-center">
                         <div className="w-10 h-10 bg-amber-50 dark:bg-amber-950/40 rounded-xl flex items-center justify-center text-amber-500 mb-2">
                             <Star className="w-5 h-5 fill-amber-500" />
                         </div>
                         <p className="text-2xl font-black text-slate-900 dark:text-[var(--app-text)]">{stats.rating > 0 ? stats.rating.toFixed(1) : '-'}</p>
-                        <p className="text-slate-400 dark:text-[var(--app-muted)] text-[10px] font-bold uppercase">Rating ({stats.totalReviews})</p>
+                        <p className="text-slate-400 dark:text-[var(--app-muted)] text-[10px] font-bold uppercase">{t('garage.ratingCount', { count: stats.totalReviews })}</p>
                     </div>
                 </div>
 
@@ -320,19 +325,32 @@ export default function GarageDashboard() {
                         className="w-full bg-blue-600 text-white p-4 rounded-2xl shadow-lg shadow-blue-600/20 active:scale-95 transition-all flex items-center justify-center gap-2"
                     >
                         <Plus className="w-6 h-6" />
-                        <span className="font-bold text-lg">Add Service</span>
+                        <span className="font-bold text-lg">{t('garage.addService')}</span>
                     </button>
                 </div>
+
+                {/* Earnings at a glance (from records already loaded) */}
+                {services.some((s) => s.status === 'completed') && (
+                    <EarningsCard services={services.filter((s) => s.status === 'completed').map((s) => ({ amount: s.amount, createdAt: s.createdAt }))} />
+                )}
+
+                {services.length === 0 && (
+                    <div className="text-center py-10 px-6 rounded-3xl border-2 border-dashed border-slate-200 dark:border-[var(--app-border)] mb-6">
+                        <Wrench className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                        <p className="font-bold text-slate-800 dark:text-[var(--app-text)] mb-1">{t('garage.emptyTitle')}</p>
+                        <p className="text-sm text-slate-500 dark:text-[var(--app-muted)]">{t('garage.emptyBody')}</p>
+                    </div>
+                )}
 
                 {/* Recent Services */}
                 {services.length > 0 && (
                     <div className="mb-6">
                         <div className="mb-3">
-                            <h4 className="text-sm font-black text-slate-400 dark:text-[var(--app-muted)] uppercase tracking-[0.15em]">Recent Services</h4>
+                            <h4 className="text-sm font-black text-slate-400 dark:text-[var(--app-muted)] uppercase tracking-[0.15em]">{t('garage.recent')}</h4>
                         </div>
                         <div className="space-y-3">
                             {(showAllServices ? services : services.slice(0, 3)).map((service) => {
-                                const meta = STATUS_META[service.status] ?? { label: service.status, tone: 'bg-slate-100 text-slate-500' };
+                                const meta = { label: t(statusKey(service.status)), tone: STATUS_TONE[service.status] ?? STATUS_TONE.cancelled };
                                 const resumable = isResumable(service.status);
                                 return (
                                     <button
@@ -350,15 +368,15 @@ export default function GarageDashboard() {
                                                 </p>
                                             </div>
                                             <div className="text-right shrink-0">
-                                                <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">₹{service.amount.toLocaleString('en-IN')}</p>
+                                                <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">₹{service.amount.toLocaleString(locale)}</p>
                                                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${meta.tone}`}>{meta.label}</span>
                                             </div>
                                         </div>
                                         <div className="flex items-center justify-between text-[10px]">
                                             <span className="text-slate-300 dark:text-slate-600">
-                                                {new Date(service.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                                {new Date(service.createdAt).toLocaleDateString(locale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                                             </span>
-                                            {resumable && <span className="font-bold text-blue-600">Tap to continue →</span>}
+                                            {resumable && <span className="font-bold text-blue-600">{t('garage.tapContinue')}</span>}
                                             {!resumable && service.invoiceNumber && <span className="font-mono text-slate-400">{service.invoiceNumber}</span>}
                                         </div>
                                     </button>
@@ -370,7 +388,7 @@ export default function GarageDashboard() {
                                 onClick={() => setShowAllServices(!showAllServices)}
                                 className="w-full text-blue-600 text-sm font-bold text-center mt-4 py-2"
                             >
-                                {showAllServices ? 'Show less' : `Show all ${services.length}`}
+                                {showAllServices ? t('garage.showLess') : t('garage.showAll', { count: services.length })}
                             </button>
                         )}
                     </div>
@@ -381,6 +399,7 @@ export default function GarageDashboard() {
                     isOpen={showAddService}
                     garageId={garageId}
                     resume={resume}
+                    recent={services}
                     onClose={() => {
                         setShowAddService(false);
                         setResumeRecord(null);
@@ -413,8 +432,8 @@ export default function GarageDashboard() {
                                 <div className="w-16 h-16 bg-red-100 dark:bg-red-900/40 rounded-full flex items-center justify-center mx-auto mb-4">
                                     <LogOut className="w-8 h-8 text-red-600" />
                                 </div>
-                                <h3 className="text-xl font-black text-slate-900 dark:text-[var(--app-text)] mb-2">Logout?</h3>
-                                <p className="text-slate-500 dark:text-[var(--app-muted)] text-sm">Are you sure you want to logout?</p>
+                                <h3 className="text-xl font-black text-slate-900 dark:text-[var(--app-text)] mb-2">{t('garage.logoutTitle')}</h3>
+                                <p className="text-slate-500 dark:text-[var(--app-muted)] text-sm">{t('home.logoutBody')}</p>
                             </div>
                             <div className="space-y-2">
                                 <button
@@ -425,13 +444,13 @@ export default function GarageDashboard() {
                                     }}
                                     className="w-full bg-red-600 text-white py-3 rounded-xl font-bold"
                                 >
-                                    Yes, Logout
+                                    {t('common.logout')}
                                 </button>
                                 <button
                                     onClick={() => setShowLogoutConfirm(false)}
                                     className="w-full bg-slate-100 dark:bg-[var(--app-surface-2)] text-slate-600 dark:text-[var(--app-muted)] py-3 rounded-xl font-medium"
                                 >
-                                    Cancel
+                                    {t('common.cancel')}
                                 </button>
                             </div>
                         </motion.div>

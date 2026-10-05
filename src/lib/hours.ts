@@ -1,3 +1,5 @@
+import type { TFunction } from '../i18n';
+
 // Opening-hours helpers shared by the customer and garage screens.
 // Service hours are stored as "9:00 AM - 8:00 PM" (see TimeRangePicker);
 // working days as short names, e.g. ['Mon', 'Tue', ...].
@@ -31,19 +33,27 @@ export function normalizeWorkingDays(days?: string[] | string | null): string[] 
 export interface OpenStatus {
     known: boolean;     // false when hours couldn't be parsed
     isOpen: boolean;
-    label: string;      // "Open · closes 8:00 PM", "Closed · opens 9:00 AM", …
+    state: 'unknown' | 'closedToday' | 'open' | 'closed';
+    time?: string;      // closing time when open, opening time when closed
+}
+
+// "Open · closes 8:00 PM", "Closed · opens 9:00 AM", … in the current language.
+export function openLabel(s: OpenStatus, t: TFunction): string {
+    if (s.state === 'unknown') return t('hours.notListed');
+    if (s.state === 'closedToday') return t('hours.closedToday');
+    return s.state === 'open' ? t('hours.openCloses', { time: s.time ?? '' }) : t('hours.closedOpens', { time: s.time ?? '' });
 }
 
 // Whether the garage is open right now. Overnight ranges ("10:00 PM - 2:00 AM")
 // wrap past midnight. When working days are given, a day off is always closed.
 export function getOpenStatus(serviceHours?: string | null, workingDays?: string[] | string | null, now = new Date()): OpenStatus {
     const hours = parseServiceHours(serviceHours);
-    if (!hours) return { known: false, isOpen: false, label: 'Hours not listed' };
+    if (!hours) return { known: false, isOpen: false, state: 'unknown' };
 
     const days = normalizeWorkingDays(workingDays);
     const today = DAY_NAMES[now.getDay()];
     if (days.length > 0 && !days.includes(today)) {
-        return { known: true, isOpen: false, label: 'Closed today' };
+        return { known: true, isOpen: false, state: 'closedToday' };
     }
 
     const cur = now.getHours() * 60 + now.getMinutes();
@@ -51,9 +61,5 @@ export function getOpenStatus(serviceHours?: string | null, workingDays?: string
         ? cur >= hours.open || cur < hours.close
         : cur >= hours.open && cur < hours.close;
 
-    return {
-        known: true,
-        isOpen,
-        label: isOpen ? `Open · closes ${hours.closeLabel}` : `Closed · opens ${hours.openLabel}`,
-    };
+    return { known: true, isOpen, state: isOpen ? 'open' : 'closed', time: isOpen ? hours.closeLabel : hours.openLabel };
 }

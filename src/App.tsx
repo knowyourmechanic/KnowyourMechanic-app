@@ -10,6 +10,8 @@ const CustomerActivity = lazy(() => import('./pages/customer/Activity'));
 const GarageDetail = lazy(() => import('./pages/customer/GarageDetail'));
 const CustomerSupport = lazy(() => import('./pages/customer/Support'));
 const CustomerProfile = lazy(() => import('./pages/customer/Profile'));
+const CustomerVehicles = lazy(() => import('./pages/customer/Vehicles'));
+const PublicPassport = lazy(() => import('./pages/PublicPassport'));
 const GarageOnboarding = lazy(() => import('./pages/garage/Onboarding'));
 const GarageDashboard = lazy(() => import('./pages/garage/Dashboard'));
 const GarageSettings = lazy(() => import('./pages/garage/Settings'));
@@ -88,12 +90,15 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/auth" replace />} />
           <Route path="/auth" element={<AuthRoute><AuthPage /></AuthRoute>} />
+          {/* Public, no login: a shared vehicle service passport */}
+          <Route path="/v/:token" element={<PublicPassport />} />
 
           {/* Customer Routes */}
           <Route path="/customer" element={<ProtectedRoute requiredRole="customer"><CustomerHome /></ProtectedRoute>} />
           <Route path="/customer/activity" element={<ProtectedRoute requiredRole="customer"><CustomerActivity /></ProtectedRoute>} />
           <Route path="/customer/garage/:id" element={<ProtectedRoute requiredRole="customer"><GarageDetail /></ProtectedRoute>} />
           <Route path="/customer/support" element={<ProtectedRoute requiredRole="customer"><CustomerSupport /></ProtectedRoute>} />
+          <Route path="/customer/vehicles" element={<ProtectedRoute requiredRole="customer"><CustomerVehicles /></ProtectedRoute>} />
           <Route path="/customer/profile" element={<ProtectedRoute requiredRole="customer"><CustomerProfile /></ProtectedRoute>} />
 
           {/* Garage Routes */}

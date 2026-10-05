@@ -295,3 +295,158 @@ export async function discoverGarages(lat: number, lng: number, radiusKm = 5): P
         .filter((g) => g.distanceKm <= radiusKm)
         .sort((a, b) => a.distanceKm - b.distanceKm);
 }
+
+// ============================================================================
+// Pending confirmations (garage logged a service; customer hasn't shared OTP)
+// ============================================================================
+export interface PendingService {
+    id: string;
+    garageName: string;
+    vehicleNumber: string | null;
+    work: string;
+    amount: number;
+    createdAt: string;
+}
+
+// Services awaiting this customer's OTP, newest first. Older than the OTP
+// lifetime + resend window they're stale, so only the last 24h are shown.
+export async function getMyPendingServices(profileId: string, phone: string): Promise<PendingService[]> {
+    const digits = phone.replace(/\D/g, '').slice(-10);
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const { data, error } = await supabase
+        .from('service_records')
+        .select('id,garage_name,vehicle_number,service_notes,description,amount,created_at')
+        .eq('status', 'pending_otp')
+        // As the customer only (a garage owner can also read records it created).
+        .or(`customer_profile_id.eq.${profileId},customer_phone.eq.${digits}`)
+        .gte('created_at', since)
+        .order('created_at', { ascending: false });
+    if (error) return [];
+    return (data ?? []).map((r) => ({
+        id: r.id,
+        garageName: r.garage_name,
+        vehicleNumber: r.vehicle_number,
+        work: (r.service_notes && r.service_notes.trim()) || r.description,
+        amount: Number(r.amount),
+        createdAt: r.created_at,
+    }));
+}
+
+// "I didn't get this service": cancels the record, burns the OTP and files a
+// report for support to review.
+export async function declineService(serviceRecordId: string, reason?: string): Promise<void> {
+    const { error } = await supabase.rpc('customer_decline_service', {
+        p_service_record_id: serviceRecordId,
+        p_reason: reason ?? undefined,
+    });
+    if (error) throw new Error(error.message);
+}
+
+// ============================================================================
+// Vehicle Service Passport
+// ============================================================================
+export interface PassportEntry {
+    id: string;
+    date: string;
+    garageId: string | null;
+    garageName: string;
+    work: string;
+    odometerKm: number | null;
+    amount: number;
+    invoiceNumber: string | null;
+}
+export interface VehiclePassport {
+    vehicleNumber: string;      // normalised, e.g. MH12AB1234
+    entries: PassportEntry[];   // newest first
+    lastServiceAt: string;
+    totalSpent: number;
+    garagesUsed: number;
+}
+
+export const normalizePlate = (v: string | null | undefined) => (v ?? '').replace(/[\s-]/g, '').toUpperCase();
+
+// Groups the customer's completed services by vehicle number.
+export function buildPassports(history: ServiceRecordRow[]): VehiclePassport[] {
+    const byVehicle = new Map<string, PassportEntry[]>();
+    for (const r of history) {
+        const plate = normalizePlate(r.vehicle_number);
+        if (!plate) continue;
+        const list = byVehicle.get(plate) ?? [];
+        list.push({
+            id: r.id,
+            date: r.created_at,
+            garageId: r.garage_id,
+            garageName: r.garage_name,
+            work: (r.service_notes && r.service_notes.trim()) || r.description,
+            odometerKm: r.odometer_km,
+            amount: Number(r.amount) + Number(r.platform_fee || 0),
+            invoiceNumber: r.invoice_number,
+        });
+        byVehicle.set(plate, list);
+    }
+    return [...byVehicle.entries()]
+        .map(([vehicleNumber, entries]) => {
+            entries.sort((a, b) => b.date.localeCompare(a.date));
+            return {
+                vehicleNumber,
+                entries,
+                lastServiceAt: entries[0].date,
+                totalSpent: entries.reduce((s, e) => s + e.amount, 0),
+                garagesUsed: new Set(entries.map((e) => e.garageName)).size,
+            };
+        })
+        .sort((a, b) => b.lastServiceAt.localeCompare(a.lastServiceAt));
+}
+
+// Service reminder: a vehicle is "due" 6 months after its last service, and
+// "due soon" in the 3 weeks before that. Computed on-device — no messages sent.
+export const SERVICE_INTERVAL_DAYS = 182;
+export function reminderFor(lastServiceAt: string, now = Date.now()): { state: 'ok' | 'soon' | 'due'; days: number } {
+    const dueAt = new Date(lastServiceAt).getTime() + SERVICE_INTERVAL_DAYS * 86400000;
+    const days = Math.round((dueAt - now) / 86400000);
+    return { state: days <= 0 ? 'due' : days <= 21 ? 'soon' : 'ok', days };
+}
+
+export async function createVehicleShare(vehicleNumber: string): Promise<string> {
+    const { data, error } = await supabase.rpc('create_vehicle_share', { p_vehicle_number: vehicleNumber });
+    if (error || !data) throw new Error(error?.message || 'Could not create a share link.');
+    return data;
+}
+
+export async function revokeVehicleShare(vehicleNumber: string): Promise<void> {
+    const { error } = await supabase.rpc('revoke_vehicle_share', { p_vehicle_number: vehicleNumber });
+    if (error) throw new Error(error.message);
+}
+
+export interface SharedPassportEntry {
+    date: string;
+    garageName: string;
+    work: string;
+    odometerKm: number | null;
+    invoiceNumber: string | null;
+}
+// Public (no login) read of a shared passport. Empty when revoked/unknown.
+export async function getSharedVehicleHistory(token: string): Promise<{ vehicleNumber: string; entries: SharedPassportEntry[] } | null> {
+    const { data, error } = await supabase.rpc('get_shared_vehicle_history', { p_token: token });
+    if (error || !data || data.length === 0) return null;
+    return {
+        vehicleNumber: data[0].vehicle_number,
+        entries: data.map((r) => ({
+            date: r.service_date,
+            garageName: r.garage_name,
+            work: r.work_done,
+            odometerKm: r.odometer_km,
+            invoiceNumber: r.invoice_number,
+        })),
+    };
+}
+
+// Public count of OTP-confirmed services per garage (discovery cards).
+export async function getGarageServiceCounts(garageIds: string[]): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    if (garageIds.length === 0) return out;
+    const { data, error } = await supabase.rpc('public_garage_service_counts', { p_garage_ids: garageIds });
+    if (error) return out;
+    for (const r of data ?? []) out.set(r.garage_id, Number(r.completed));
+    return out;
+}
