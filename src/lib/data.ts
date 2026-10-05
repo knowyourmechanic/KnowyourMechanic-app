@@ -653,9 +653,22 @@ export async function verifyServiceOtp(serviceRecordId: string, otp: string): Pr
         body: { serviceRecordId, otp },
     });
     if (error) {
+        // A wrong/expired OTP is returned as HTTP 400 with a JSON body
+        // ({ ok:false, reason, remainingAttempts, error }). supabase-js treats any
+        // non-2xx as an error and throws FunctionsHttpError, whose `context` is the
+        // raw Response — so parse it to surface the friendly state instead of the
+        // opaque "Edge Function returned a non-2xx status code" message.
         const ctx = (error as any).context;
-        if (ctx?.body && typeof ctx.body.ok === 'boolean') return ctx.body;
-        throw new Error(error.message || 'OTP verification failed.');
+        let body: any = null;
+        if (ctx && typeof ctx.json === 'function') {
+            try { body = await ctx.json(); } catch { body = null; }
+        } else if (ctx && typeof ctx.body === 'object') {
+            body = ctx.body;
+        }
+        if (body && typeof body.ok === 'boolean') {
+            return { ok: body.ok, reason: body.reason, remainingAttempts: body.remainingAttempts };
+        }
+        throw new Error(body?.error || error.message || 'OTP verification failed.');
     }
     return data as { ok: boolean };
 }

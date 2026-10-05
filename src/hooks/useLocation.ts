@@ -1,14 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { Geolocation } from '@capacitor/geolocation';
 
 interface LocationState {
     lat: number;
     lng: number;
 }
 
-// Default to Pune coordinates
+// Default to Pune coordinates — used until a real fix arrives, or if location is
+// unavailable/denied, so discovery always has a usable centre.
 const DEFAULT_LOCATION: LocationState = {
     lat: 18.5204,
-    lng: 73.8567
+    lng: 73.8567,
 };
 
 export function useLocation() {
@@ -17,72 +20,62 @@ export function useLocation() {
     const [permissionDenied, setPermissionDenied] = useState(false);
 
     const requestLocation = useCallback(() => {
+        let settled = false;
         setLoading(true);
+        setPermissionDenied(false);
 
-        console.log('Requesting location...');
-
-        // Use native browser Geolocation API for web
-        if (!('geolocation' in navigator)) {
-            console.log('Geolocation not supported, using default');
+        const finish = (loc: LocationState | null, denied = false) => {
+            if (settled) return;
+            settled = true;
+            if (loc) setLocation(loc);
+            setPermissionDenied(denied);
             setLoading(false);
-            return;
-        }
+        };
 
-        // Check permission state first (if available)
-        if (navigator.permissions) {
-            navigator.permissions.query({ name: 'geolocation' }).then((result) => {
-                console.log('Permission state:', result.state);
+        // Safety net: never leave the UI stuck on "Locating…" (which also blocks
+        // garage discovery). If nothing resolves in time, fall back to the default.
+        const timer = setTimeout(() => finish(null, false), 12000);
 
-                if (result.state === 'denied') {
-                    setPermissionDenied(true);
-                    setLoading(false);
+        (async () => {
+            try {
+                if (Capacitor.isNativePlatform()) {
+                    // Native: the Capacitor Geolocation plugin handles the OS
+                    // permission prompt and gives a reliable fix. (The web
+                    // navigator.geolocation API is flaky inside the WKWebView/
+                    // Android WebView and can hang indefinitely.)
+                    try { await Geolocation.requestPermissions(); } catch { /* getCurrentPosition will throw if truly denied */ }
+                    const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
+                    clearTimeout(timer);
+                    finish({ lat: pos.coords.latitude, lng: pos.coords.longitude });
                     return;
                 }
 
-                // Permission is 'granted' or 'prompt' - request location
-                getPosition();
-            }).catch(() => {
-                // Permissions API not fully supported, try anyway
-                getPosition();
-            });
-        } else {
-            // Fallback for browsers without Permissions API
-            getPosition();
-        }
+                // Web fallback.
+                if (!('geolocation' in navigator)) {
+                    clearTimeout(timer);
+                    finish(null, false);
+                    return;
+                }
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        clearTimeout(timer);
+                        finish({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+                    },
+                    (err) => {
+                        clearTimeout(timer);
+                        finish(null, err.code === err.PERMISSION_DENIED);
+                    },
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+                );
+            } catch {
+                // Permission denied or location unavailable → keep the default centre.
+                clearTimeout(timer);
+                finish(null, true);
+            }
+        })();
     }, []);
 
-    const getPosition = () => {
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                console.log('Location obtained:', position.coords.latitude, position.coords.longitude);
-                setLocation({
-                    lat: position.coords.latitude,
-                    lng: position.coords.longitude,
-                });
-                setPermissionDenied(false);
-                setLoading(false);
-            },
-            (error) => {
-                console.error('Geolocation error:', error.code, error.message);
-                if (error.code === error.PERMISSION_DENIED) {
-                    setPermissionDenied(true);
-                    // Show alert to guide user
-                    alert('Location access is blocked. Please enable it in your browser settings and refresh the page.');
-                }
-                // Keep default location on error
-                setLoading(false);
-            },
-            {
-                enableHighAccuracy: true,
-                timeout: 15000,
-                maximumAge: 0, // Always get fresh location
-            }
-        );
-    };
-
-    useEffect(() => {
-        requestLocation();
-    }, [requestLocation]);
+    useEffect(() => { requestLocation(); }, [requestLocation]);
 
     return { location, loading, permissionDenied, requestLocation };
 }

@@ -20,18 +20,33 @@ export interface GarageProfile {
 }
 
 export async function discoverGarages(
-    _lat: number,
-    _lng: number,
-    _radius: number = 5000
+    lat: number,
+    lng: number,
+    radius: number = 5000
 ): Promise<ApiResponse<GarageProfile[]>> {
-    // Supabase: verified, active garages. (Distance sorting can be added later
-    // with PostGIS; for now we return the visible set.)
-    const { data, error } = await supabase
+    // Verified, active garages NEAR the user. We pre-filter with a bounding box
+    // (radius in metres → degrees) that fully contains the search circle, so the
+    // nearby garages are actually returned instead of an arbitrary limited slice.
+    // The caller then does precise haversine distance filtering + sorting.
+    // (A PostGIS `earth_distance` query can replace this later for scale.)
+    let query = supabase
         .from('garages')
         .select('id,name,address,latitude,longitude,service_hours,working_days,photo_url,rating,total_reviews')
         .eq('is_verified', true)
-        .eq('is_offboarded', false)
-        .limit(50);
+        .eq('is_offboarded', false);
+
+    if (Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)) {
+        const latDelta = radius / 111_320; // ~metres per degree of latitude
+        const cosLat = Math.cos((lat * Math.PI) / 180) || 1;
+        const lngDelta = radius / (111_320 * cosLat);
+        query = query
+            .gte('latitude', lat - latDelta)
+            .lte('latitude', lat + latDelta)
+            .gte('longitude', lng - lngDelta)
+            .lte('longitude', lng + lngDelta);
+    }
+
+    const { data, error } = await query.limit(200);
     if (error) return { error: error.message };
     const garages: GarageProfile[] = (data ?? []).map((g: any) => ({
         _id: g.id,
