@@ -72,30 +72,20 @@ Deno.serve(async (req) => {
 
   const admin = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
 
-  const { data: settlement } = await admin
-    .from("fee_settlements")
-    .select("id, garage_id, amount, status")
-    .eq("razorpay_order_id", orderId)
-    .maybeSingle();
-
-  if (!settlement) return new Response("unknown order", { status: 200 });
-  if (settlement.status === "paid") return new Response("already processed", { status: 200 });
-
-  const { error: updErr } = await admin
-    .from("fee_settlements")
-    .update({ status: "paid", razorpay_payment_id: paymentId ?? null, paid_at: new Date().toISOString() })
-    .eq("id", settlement.id)
-    .eq("status", "created"); // guard: only the first webhook wins
-  if (updErr) return new Response("update failed", { status: 500 });
-
-  // Post the ledger reduction (negative = paid down what the garage owed).
-  const { error: ledgerErr } = await admin.from("garage_ledger").insert({
-    garage_id: settlement.garage_id,
-    entry_type: "settlement",
-    amount: -Number(settlement.amount),
-    note: `Fee settlement via Razorpay ${paymentId ?? orderId}`,
+  // One transaction: lock the settlement row, check the captured amount covers
+  // it, mark it paid and post the ledger credit — so concurrent/retried
+  // webhooks can never double-credit, and a partial failure leaves nothing half
+  // applied (Razorpay simply retries).
+  const amountPaise = typeof paymentEntity?.amount === "number"
+    ? paymentEntity.amount
+    : typeof orderEntity?.amount_paid === "number" ? orderEntity.amount_paid : null;
+  const { data: outcome, error: rpcErr } = await admin.rpc("apply_fee_settlement_payment", {
+    p_order_id: orderId,
+    p_payment_id: paymentId ?? null,
+    p_amount_paise: amountPaise,
   });
-  if (ledgerErr) return new Response("ledger failed", { status: 500 });
+  if (rpcErr) return new Response("settlement failed", { status: 500 });
+  if (outcome !== "ok") return new Response(String(outcome), { status: 200 });
 
   return new Response("ok", { status: 200 });
 });

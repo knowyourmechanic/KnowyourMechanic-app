@@ -1,32 +1,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-import { hashServiceOtp } from "../_shared/otpHash.ts";
+import { json, readAuthedJson, requireEnv } from "../_shared/http.ts";
 
-const corsHeaders: Record<string, string> = {
-  "access-control-allow-origin": "*",
-  "access-control-allow-headers": "authorization, x-client-info, apikey, content-type",
-  "access-control-allow-methods": "POST, OPTIONS"
-};
+import { hashServiceOtp } from "../_shared/otpHash.ts";
 
 type VerifyBody = {
   serviceRecordId?: string;
   otp?: string;
 };
-
-function json(status: number, payload: unknown) {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { ...corsHeaders, "content-type": "application/json" }
-  });
-}
-
-function requireEnv(name: string): string {
-  const value = Deno.env.get(name);
-  if (!value) {
-    throw new Error(`${name} is not configured.`);
-  }
-  return value;
-}
 
 const REASON_MESSAGE: Record<string, string> = {
   invalid: "Incorrect OTP.",
@@ -35,24 +16,9 @@ const REASON_MESSAGE: Record<string, string> = {
 };
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
-  if (req.method !== "POST") {
-    return json(405, { error: "Method not allowed." });
-  }
-
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader) {
-    return json(401, { error: "Missing Authorization header." });
-  }
-
-  let body: VerifyBody;
-  try {
-    body = (await req.json()) as VerifyBody;
-  } catch {
-    return json(400, { error: "Invalid JSON body." });
-  }
+  const pre = await readAuthedJson<VerifyBody>(req);
+  if (pre instanceof Response) return pre;
+  const { body, authHeader } = pre;
 
   const otp = (body.otp ?? "").trim();
   if (!body.serviceRecordId || !/^\d{4,8}$/.test(otp)) {

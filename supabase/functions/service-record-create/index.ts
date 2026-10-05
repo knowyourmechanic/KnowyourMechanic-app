@@ -1,16 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
 import { normalizeIndianPhone } from "../_shared/smsProvider.ts";
-import { routeDelivery } from "../_shared/deliver.ts";
-import { generateOtp, hashServiceOtp, randomOtpSalt } from "../_shared/otpHash.ts";
-
-const OTP_TTL_MINUTES = 10;
-
-const corsHeaders: Record<string, string> = {
-  "access-control-allow-origin": "*",
-  "access-control-allow-headers": "authorization, x-client-info, apikey, content-type",
-  "access-control-allow-methods": "POST, OPTIONS"
-};
+import { json, readAuthedJson, requireEnv } from "../_shared/http.ts";
+import { devOtpAllowed, issueServiceOtp } from "../_shared/serviceOtp.ts";
 
 type CreateBody = {
   garageId?: string;
@@ -30,42 +22,15 @@ type CreateBody = {
   customerHasApp?: boolean;
 };
 
-function json(status: number, payload: unknown) {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { ...corsHeaders, "content-type": "application/json" }
-  });
-}
-
-function requireEnv(name: string): string {
-  const value = Deno.env.get(name);
-  if (!value) {
-    throw new Error(`${name} is not configured.`);
-  }
-  return value;
-}
-
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
-  if (req.method !== "POST") {
-    return json(405, { error: "Method not allowed." });
-  }
+  const pre = await readAuthedJson<CreateBody>(req);
+  if (pre instanceof Response) return pre;
+  const { body, authHeader } = pre;
 
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader) {
-    return json(401, { error: "Missing Authorization header." });
-  }
-
-  let body: CreateBody;
-  try {
-    body = (await req.json()) as CreateBody;
-  } catch {
-    return json(400, { error: "Invalid JSON body." });
-  }
-
-  if (!body.garageId || !body.customerPhone || !body.vehicleType || typeof body.amount !== "number") {
+  if (
+    !body.garageId || !body.customerPhone || !body.vehicleType ||
+    typeof body.amount !== "number" || !Number.isFinite(body.amount) || body.amount <= 0
+  ) {
     return json(400, { error: "Missing required fields." });
   }
 
@@ -76,10 +41,15 @@ Deno.serve(async (req) => {
     return json(400, { error: "Invalid customer phone." });
   }
 
-  const supabaseUrl = requireEnv("SUPABASE_URL");
-  const anonKey = requireEnv("SUPABASE_ANON_KEY");
-  const serviceRoleKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
-  const pepper = requireEnv("SERVICE_OTP_PEPPER");
+  let supabaseUrl: string, anonKey: string, serviceRoleKey: string, pepper: string;
+  try {
+    supabaseUrl = requireEnv("SUPABASE_URL");
+    anonKey = requireEnv("SUPABASE_ANON_KEY");
+    serviceRoleKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+    pepper = requireEnv("SERVICE_OTP_PEPPER");
+  } catch (e) {
+    return json(500, { error: e instanceof Error ? e.message : "Server not configured." });
+  }
 
   // Caller-scoped client: the RPC runs SECURITY DEFINER but still checks
   // owns_garage() against this caller's auth.uid().
@@ -116,77 +86,22 @@ Deno.serve(async (req) => {
   }
 
   const serviceRecordId = (created as { service_record_id: string }).service_record_id;
-
-  // OTP is generated, stored (hashed), and sent entirely server-side.
   const admin = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
-  const otp = generateOtp();
-  const salt = randomOtpSalt();
-  const otpHash = await hashServiceOtp(otp, salt, pepper);
-  const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000).toISOString();
 
-  // Route the OTP: push if the customer has the app, else WhatsApp (queued for
-  // the Phase-4 sender). Delivery failures never block record creation.
-  let deliveryChannel = "none";
-  let deliveryId: string | null = null;
-  let otpNotice: string | null = null;
+  let issued;
   try {
-    const { data: rec } = await admin
-      .from("service_records")
-      .select("customer_profile_id, garage_name")
-      .eq("id", serviceRecordId)
-      .single();
-    const recRow = rec as { customer_profile_id: string | null; garage_name: string | null } | null;
-    // Customer verifies the service details, THEN shares the code with the garage.
-    const vehicle = body.vehicleNumber ? body.vehicleNumber.toUpperCase() : "your vehicle";
-    const service = (body.serviceNotes && body.serviceNotes.trim()) || "service";
-    const amountStr = String(body.amount);
-    const garageName = recRow?.garage_name ?? "The garage";
-    const routed = await routeDelivery(admin, {
-      serviceRecordId,
-      recipientProfileId: recRow?.customer_profile_id ?? null,
-      recipientPhone: nationalPhone,
-      kind: "otp",
-      title: "Confirm your service",
-      body: `${garageName}: ${service} on ${vehicle} for Rs ${amountStr}. If correct, share OTP ${otp} with the garage. Don't share if you didn't get this service.`,
-      data: { otp, vehicle, service, amount: amountStr, garage: garageName }
-    });
-    deliveryChannel = routed.channel;
-    deliveryId = routed.deliveryId;
-    // routeDelivery reports provider (WhatsApp/FCM) failures in-object rather
-    // than throwing — surface them so a failed send isn't silently "no error".
-    if (routed.error) otpNotice = routed.error;
-  } catch (error) {
-    otpNotice = error instanceof Error ? error.message : "OTP delivery failed.";
+    // Delivery failures never block record creation (the garage can resend).
+    issued = await issueServiceOtp(admin, { serviceRecordId, nationalPhone, pepper });
+  } catch {
+    return json(500, { serviceRecordId, error: "Service record created but OTP could not be stored." });
   }
 
-  const { error: otpError } = await admin.from("service_otps").insert({
-    service_record_id: serviceRecordId,
-    phone: nationalPhone,
-    otp_hash: otpHash,
-    otp_salt: salt,
-    expires_at: expiresAt,
-    sent_provider: deliveryChannel,
-    provider_message_id: deliveryId
-  });
-
-  if (otpError) {
-    return json(500, { error: "Service record created but OTP could not be stored." });
-  }
-
-  // The dev OTP is ONLY ever returned for explicitly allow-listed test numbers,
-  // and only when ALLOW_DEV_OTP is on. This makes it impossible to leak a real
-  // customer's OTP back to the caller even if the flag is left enabled.
-  const testPhones = (Deno.env.get("TEST_OTP_PHONES") ?? "")
-    .split(",")
-    .map((s) => s.replace(/\D/g, "").slice(-10))
-    .filter((s) => s.length === 10);
-  const devOtpAllowed = Deno.env.get("ALLOW_DEV_OTP") === "true" && testPhones.includes(nationalPhone);
   return json(200, {
     serviceRecordId,
     status: "pending_otp",
-    otpExpiresAt: expiresAt,
-    otpDelivery: deliveryChannel,
-    otpDeliveryError: otpNotice,
-    ...(devOtpAllowed ? { devOtp: otp } : {})
+    otpExpiresAt: issued.expiresAt,
+    otpDelivery: issued.channel,
+    otpDeliveryError: issued.deliveryError,
+    ...(devOtpAllowed(nationalPhone) ? { devOtp: issued.otp } : {})
   });
 });

@@ -1,28 +1,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
+import { corsHeaders, json, requireEnv } from "../_shared/http.ts";
+
 // Creates a Razorpay Order for the platform fees a garage owes KYM, so the
 // garage can settle them IN-APP via Standard Checkout. The amount is computed
 // server-side from the ledger (never trusted from the client), and a
 // fee_settlements row records the order for idempotent webhook reconciliation.
 
-const corsHeaders: Record<string, string> = {
-  "access-control-allow-origin": "*",
-  "access-control-allow-headers": "authorization, x-client-info, apikey, content-type",
-  "access-control-allow-methods": "POST, OPTIONS",
-};
-
-function json(status: number, payload: unknown) {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { ...corsHeaders, "content-type": "application/json" },
-  });
-}
-
-function requireEnv(name: string): string {
-  const v = Deno.env.get(name);
-  if (!v) throw new Error(`${name} is not configured.`);
-  return v;
-}
+const ORDER_REUSE_MS = 30 * 60 * 1000;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -70,6 +55,23 @@ Deno.serve(async (req) => {
   if (outstanding <= 0) return json(200, { nothingDue: true });
 
   const amountPaise = Math.round(outstanding * 100);
+  const admin = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
+
+  // Reuse a still-open order for the same amount (double taps, a dismissed
+  // sheet reopened) instead of minting a new one each time — parallel open
+  // orders for the full balance could each be paid and over-credit the garage.
+  const { data: open } = await admin
+    .from("fee_settlements")
+    .select("razorpay_order_id, amount")
+    .eq("garage_id", body.garageId)
+    .eq("status", "created")
+    .gte("created_at", new Date(Date.now() - ORDER_REUSE_MS).toISOString())
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (open?.razorpay_order_id && Math.round(Number(open.amount) * 100) === amountPaise) {
+    return json(200, { orderId: open.razorpay_order_id, amount: amountPaise, currency: "INR", keyId });
+  }
 
   // Create the Razorpay order (Orders API).
   const rzpRes = await fetch("https://api.razorpay.com/v1/orders", {
@@ -86,13 +88,12 @@ Deno.serve(async (req) => {
     }),
   });
 
-  const order = await rzpRes.json();
+  const order = await rzpRes.json().catch(() => null);
   if (!rzpRes.ok || !order?.id) {
     return json(502, { error: order?.error?.description || "Could not create Razorpay order." });
   }
 
   // Record the order for webhook reconciliation (service role bypasses RLS).
-  const admin = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
   const { error: insErr } = await admin.from("fee_settlements").insert({
     garage_id: body.garageId,
     amount: outstanding,

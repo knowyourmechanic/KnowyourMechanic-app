@@ -1,5 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
+import { json, readAuthedJson, requireEnv } from "../_shared/http.ts";
+
 import { normalizeIndianPhone } from "../_shared/smsProvider.ts";
 import { routeDelivery } from "../_shared/deliver.ts";
 
@@ -8,46 +10,12 @@ import { routeDelivery } from "../_shared/deliver.ts";
 // the garage app right after complete_service_payment succeeds. Idempotent — a
 // record whose invoice_notification_status is no longer 'pending' is left alone.
 
-const corsHeaders: Record<string, string> = {
-  "access-control-allow-origin": "*",
-  "access-control-allow-headers": "authorization, x-client-info, apikey, content-type",
-  "access-control-allow-methods": "POST, OPTIONS"
-};
-
 type NotifyBody = { serviceRecordId?: string };
 
-function json(status: number, payload: unknown) {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { ...corsHeaders, "content-type": "application/json" }
-  });
-}
-
-function requireEnv(name: string): string {
-  const value = Deno.env.get(name);
-  if (!value) throw new Error(`${name} is not configured.`);
-  return value;
-}
-
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
-  if (req.method !== "POST") {
-    return json(405, { error: "Method not allowed." });
-  }
-
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader) {
-    return json(401, { error: "Missing Authorization header." });
-  }
-
-  let body: NotifyBody;
-  try {
-    body = (await req.json()) as NotifyBody;
-  } catch {
-    return json(400, { error: "Invalid JSON body." });
-  }
+  const pre = await readAuthedJson<NotifyBody>(req);
+  if (pre instanceof Response) return pre;
+  const { body, authHeader } = pre;
   if (!body.serviceRecordId) {
     return json(400, { error: "Missing service record id." });
   }
@@ -79,7 +47,7 @@ Deno.serve(async (req) => {
     return json(403, { error: "Not authorized for this service record." });
   }
 
-  const record = rec as {
+  const record = rec as unknown as {
     customer_profile_id: string | null;
     customer_phone: string;
     garage_name: string | null;
@@ -114,6 +82,18 @@ Deno.serve(async (req) => {
   const garageName = record.garage_name ?? "The garage";
 
   const admin = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
+
+  // Claim the send atomically (pending -> sent) so two concurrent calls can't
+  // both deliver; on failure the status is rewritten to 'failed' below.
+  const { data: claimed } = await admin
+    .from("service_records")
+    .update({ invoice_notification_status: "sent", updated_at: new Date().toISOString() })
+    .eq("id", body.serviceRecordId)
+    .eq("invoice_notification_status", "pending")
+    .select("id");
+  if (!claimed || claimed.length === 0) {
+    return json(200, { ok: true, alreadyHandled: true });
+  }
 
   let channel = "none";
   let deliveryId: string | null = null;
