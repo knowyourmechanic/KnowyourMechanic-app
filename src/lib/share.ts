@@ -1,11 +1,15 @@
 import { Capacitor } from '@capacitor/core';
 
 // Public web origin for links that leave the app (vehicle passport). The native
-// app runs on capacitor://localhost, so it needs the deployed site's URL.
+// app runs on capacitor://localhost, so it needs the deployed site's URL:
+// VITE_PUBLIC_WEB_URL wins, then the current web origin (for the browser build),
+// then the known production site as a fallback so native sharing always works.
+const DEFAULT_WEB_URL = 'https://knowyour-mechanic-app.vercel.app';
 export function publicWebUrl(path: string): string | null {
     const configured = import.meta.env.VITE_PUBLIC_WEB_URL as string | undefined;
     const base = configured
-        || (typeof window !== 'undefined' && /^https?:/.test(window.location.origin) ? window.location.origin : '');
+        || (typeof window !== 'undefined' && /^https?:/.test(window.location.origin) ? window.location.origin : '')
+        || DEFAULT_WEB_URL;
     return base ? `${base.replace(/\/$/, '')}${path}` : null;
 }
 

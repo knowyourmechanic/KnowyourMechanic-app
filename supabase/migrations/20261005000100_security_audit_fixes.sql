@@ -204,7 +204,19 @@ revoke all on function public.apply_garage_referral(uuid, text) from public, ano
 grant execute on function public.apply_garage_referral(uuid, text) to authenticated;
 
 -- 3. Purge RPC: server-only ---------------------------------------------------
-revoke all on function public.purge_stale_pending_service_records(interval) from public, anon, authenticated;
+-- Guarded: this function only exists if migration 20260726000200 was applied.
+-- On a database where it was never created there is nothing to lock down, and an
+-- unguarded REVOKE would error (no IF EXISTS form) and abort the whole migration.
+do $$
+begin
+  if exists (
+    select 1 from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'purge_stale_pending_service_records'
+  ) then
+    execute 'revoke all on function public.purge_stale_pending_service_records(interval) from public, anon, authenticated';
+  end if;
+end $$;
 
 -- 4. Reviews: only customers who completed a service with the garage ---------
 create or replace function public.has_completed_service_with(p_garage_id uuid)
