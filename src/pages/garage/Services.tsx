@@ -10,6 +10,7 @@ import {
 } from '../../lib/data';
 import { useToast } from '../../components/Toast';
 import { errorMessage } from '../../lib/errors';
+import { useOwnerOnly } from '../../hooks/useOwnerOnly';
 
 interface Service {
     _id: string;
@@ -37,6 +38,7 @@ export default function GarageServices() {
 
     const navigate = useNavigate();
     const { userData } = useAuth();
+    useOwnerOnly('/garage');
     const toast = useToast();
 
     useEffect(() => {

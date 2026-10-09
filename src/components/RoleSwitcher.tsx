@@ -35,7 +35,7 @@ export default function RoleSwitcher({ variant = 'card' }: { variant?: 'card' | 
             await addMyRole(role);
             await refreshRoles();
             switchRole(role);
-            const path = await routeForRole(role, userData._id);
+            const path = await routeForRole(role);
             setOpen(false);
             navigate(path);
         } catch (e) {
@@ -50,7 +50,7 @@ export default function RoleSwitcher({ variant = 'card' }: { variant?: 'card' | 
         setBusy(role);
         try {
             switchRole(role);
-            const path = await routeForRole(role, userData._id);
+            const path = await routeForRole(role);
             setOpen(false);
             navigate(path);
         } finally {

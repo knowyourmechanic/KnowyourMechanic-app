@@ -17,6 +17,8 @@ export interface ServiceRecordRow {
     created_at: string;
     vehicle_number: string | null;
     service_notes: string | null;
+    created_by_profile_id: string | null;
+    performed_by_name: string | null;
     vehicle_type: string | null;
     vehicle_make_code: string | null;
     vehicle_model_code: string | null;

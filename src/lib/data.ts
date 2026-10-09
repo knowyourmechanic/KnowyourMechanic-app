@@ -7,3 +7,4 @@ export * from './api/customer';
 export * from './api/admin';
 export * from './api/support';
 export * from './api/notifications';
+export * from './api/team';

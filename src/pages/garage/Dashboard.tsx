@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    Settings, Plus, Star, LogOut, Wrench, User,
+    Settings, Plus, Star, LogOut, Wrench, User, Briefcase, Users,
     X, Headphones, ChevronRight, Edit
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { getMyGarage, getGarageServiceRecords } from '../../lib/data';
+import { getGarageServiceRecords, getMyGarageContext, getPendingJoinCount, getWorkHistory, type MemberRole } from '../../lib/data';
+import { garageHome } from '../../lib/roles';
 
 import AddServiceModal from '../../components/AddServiceModal';
 import FeeSettlementCard from '../../components/FeeSettlementCard';
@@ -63,6 +64,10 @@ export default function GarageDashboard() {
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const [garageId, setGarageId] = useState('');
     const [feeReload, setFeeReload] = useState(0);   // bump to re-check fees owed
+    const [myRole, setMyRole] = useState<MemberRole>('owner');   // 'staff' = garage employee
+    const [pendingJoins, setPendingJoins] = useState(0);
+    const [garageRating, setGarageRating] = useState(0);   // header pill: always the garage's
+    const isStaff = myRole === 'staff';
 
     const navigate = useNavigate();
     const { userData, logout } = useAuth();
@@ -79,14 +84,27 @@ export default function GarageDashboard() {
     const loadDashboard = async () => {
         try {
             if (!userData?._id) { setLoading(false); return; }
-            const garage = await getMyGarage(userData._id);
+            const ctx = await getMyGarageContext();
+            // Not (or no longer) an active owner/employee: route to where they belong.
+            if (!ctx) { navigate(await garageHome(), { replace: true }); return; }
+            const garage = ctx.garage;
+            setMyRole(ctx.role);
+            setGarageRating(Number(garage?.rating || 0));
             if (garage) {
                 setGarageId(garage.id);
                 setGarageName(garage.name);
                 if (garage.photo_url) setGaragePhotoUrl(garage.photo_url);
                 if (garage.service_hours) setServiceHours(garage.service_hours);
                 if (garage.working_days && garage.working_days.length) setWorkingDays(garage.working_days);
-                await loadServices(garage.id, Number(garage.rating || 0), garage.total_reviews || 0);
+                if (ctx.role === 'staff') {
+                    // An employee's rating = customers' ratings of the services they did here.
+                    const h = await getWorkHistory().catch(() => null);
+                    const here = h?.stints.find((s) => s.status === 'active');
+                    await loadServices(garage.id, here?.customerAvg ?? 0, here?.customerCount ?? 0);
+                } else {
+                    getPendingJoinCount(garage.id).then(setPendingJoins).catch(() => {});
+                    await loadServices(garage.id, Number(garage.rating || 0), garage.total_reviews || 0);
+                }
             }
         } catch (error) {
             console.error('Error loading dashboard:', error);
@@ -162,6 +180,7 @@ export default function GarageDashboard() {
                 <div className="absolute bottom-0 left-0 right-0 p-6 z-10">
                     <h1 className="text-3xl font-black text-white mb-2 leading-tight">
                         {garageName || 'Your Garage'}
+                        {isStaff && <span className="ml-2 align-middle text-xs font-bold uppercase bg-white/15 border border-white/20 rounded-full px-2 py-0.5">{t('garage.employeeBadge')}</span>}
                     </h1>
                     <div className="flex items-center gap-3">
                         {openNow ? (
@@ -177,7 +196,7 @@ export default function GarageDashboard() {
                         )}
                         <div className="px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/10 text-white/90 text-xs font-bold flex items-center gap-1.5">
                             <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                            {stats.rating > 0 ? t('garage.ratingValue', { rating: stats.rating.toFixed(1) }) : t('garage.noRatings')}
+                            {garageRating > 0 ? t('garage.ratingValue', { rating: garageRating.toFixed(1) }) : t('garage.noRatings')}
                         </div>
                     </div>
                 </div>
@@ -223,12 +242,34 @@ export default function GarageDashboard() {
                                     <h3 className="text-xl font-black">{garageName || 'Your Garage'}</h3>
                                     <p className="text-blue-200 text-sm font-medium flex items-center gap-2 mt-1">
                                         <div className="w-2 h-2 rounded-full bg-green-400" />
-                                        Active
+                                        {isStaff ? t('garage.employeeBadge') : t('garage.ownerBadge')}
                                     </p>
                                 </div>
 
                                 {/* Panel Menu */}
                                 <div className="flex-1 p-4 space-y-2">
+{isStaff ? (
+<>
+                                    <button
+                                        onClick={() => {
+                                            setShowProfilePanel(false);
+                                            navigate('/garage/work');
+                                        }}
+                                        className="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-slate-50 dark:hover:bg-[var(--app-bg)] transition-all group"
+                                    >
+                                        <div className="w-12 h-12 bg-blue-50 dark:bg-blue-950/40 rounded-xl flex items-center justify-center text-blue-600">
+                                            <Briefcase className="w-5 h-5" />
+                                        </div>
+                                        <div className="flex-1 text-left">
+                                            <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">{t('garage.menuWork')}</p>
+                                            <p className="text-slate-400 dark:text-[var(--app-muted)] text-xs">{t('garage.menuWorkSub')}</p>
+                                        </div>
+                                        <ChevronRight className="w-5 h-5 text-slate-300 dark:text-slate-600 group-hover:text-blue-500" />
+                                    </button>
+
+</>
+) : (
+<>
                                     <button
                                         onClick={() => {
                                             setShowProfilePanel(false);
@@ -264,6 +305,26 @@ export default function GarageDashboard() {
                                         <ChevronRight className="w-5 h-5 text-slate-300 dark:text-slate-600 group-hover:text-amber-500" />
                                     </button>
 
+                                    <button
+                                        onClick={() => {
+                                            setShowProfilePanel(false);
+                                            navigate('/garage/team');
+                                        }}
+                                        className="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-slate-50 dark:hover:bg-[var(--app-bg)] transition-all group"
+                                    >
+                                        <div className="relative w-12 h-12 bg-purple-50 dark:bg-purple-950/40 rounded-xl flex items-center justify-center text-purple-600">
+                                            <Users className="w-5 h-5" />
+                                            {pendingJoins > 0 && <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center">{pendingJoins}</span>}
+                                        </div>
+                                        <div className="flex-1 text-left">
+                                            <p className="font-bold text-slate-900 dark:text-[var(--app-text)]">{t('garage.menuTeam')}</p>
+                                            <p className="text-slate-400 dark:text-[var(--app-muted)] text-xs">{t('garage.menuTeamSub')}</p>
+                                        </div>
+                                        <ChevronRight className="w-5 h-5 text-slate-300 dark:text-slate-600 group-hover:text-purple-500" />
+                                    </button>
+
+</>
+)}
                                     <button
                                         onClick={() => {
                                             setShowProfilePanel(false);
@@ -304,19 +365,27 @@ export default function GarageDashboard() {
                             <Wrench className="w-5 h-5" />
                         </div>
                         <p className="text-2xl font-black text-slate-900 dark:text-[var(--app-text)]">{stats.completed}</p>
-                        <p className="text-slate-400 dark:text-[var(--app-muted)] text-[10px] font-bold uppercase">{t('garage.completed')}</p>
+                        <p className="text-slate-400 dark:text-[var(--app-muted)] text-[10px] font-bold uppercase">{isStaff ? t('garage.youCompleted') : t('garage.completed')}</p>
                     </div>
                     <div className="bg-white dark:bg-[var(--app-surface)] rounded-2xl border border-slate-100 dark:border-[var(--app-border)] p-4 flex flex-col items-center">
                         <div className="w-10 h-10 bg-amber-50 dark:bg-amber-950/40 rounded-xl flex items-center justify-center text-amber-500 mb-2">
                             <Star className="w-5 h-5 fill-amber-500" />
                         </div>
                         <p className="text-2xl font-black text-slate-900 dark:text-[var(--app-text)]">{stats.rating > 0 ? stats.rating.toFixed(1) : '-'}</p>
-                        <p className="text-slate-400 dark:text-[var(--app-muted)] text-[10px] font-bold uppercase">{t('garage.ratingCount', { count: stats.totalReviews })}</p>
+                        <p className="text-slate-400 dark:text-[var(--app-muted)] text-[10px] font-bold uppercase">{isStaff ? t('garage.yourRatingCount', { count: stats.totalReviews }) : t('garage.ratingCount', { count: stats.totalReviews })}</p>
                     </div>
                 </div>
 
                 {/* Platform fees owed to KYM (settle in-app via Razorpay) */}
-                {garageId && <FeeSettlementCard garageId={garageId} garageName={garageName} reloadSignal={feeReload} />}
+                {garageId && !isStaff && <FeeSettlementCard garageId={garageId} garageName={garageName} reloadSignal={feeReload} />}
+
+                {/* Owner: someone is asking to join */}
+                {!isStaff && pendingJoins > 0 && (
+                    <button onClick={() => navigate('/garage/team')}
+                        className="w-full mb-6 rounded-2xl px-4 py-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-200 font-semibold text-sm flex items-center justify-between">
+                        {t('garage.joinRequests', { count: pendingJoins })} <ChevronRight className="w-4 h-4" />
+                    </button>
+                )}
 
                 {/* Add Service Record Button */}
                 <div className="mb-6">
@@ -331,7 +400,7 @@ export default function GarageDashboard() {
 
                 {/* Earnings at a glance (from records already loaded) */}
                 {services.some((s) => s.status === 'completed') && (
-                    <EarningsCard services={services.filter((s) => s.status === 'completed').map((s) => ({ amount: s.amount, createdAt: s.createdAt }))} />
+                    <EarningsCard title={isStaff ? t('earnings.titleStaff') : undefined} services={services.filter((s) => s.status === 'completed').map((s) => ({ amount: s.amount, createdAt: s.createdAt }))} />
                 )}
 
                 {services.length === 0 && (
@@ -346,7 +415,7 @@ export default function GarageDashboard() {
                 {services.length > 0 && (
                     <div className="mb-6">
                         <div className="mb-3">
-                            <h4 className="text-sm font-black text-slate-400 dark:text-[var(--app-muted)] uppercase tracking-[0.15em]">{t('garage.recent')}</h4>
+                            <h4 className="text-sm font-black text-slate-400 dark:text-[var(--app-muted)] uppercase tracking-[0.15em]">{isStaff ? t('garage.yourServices') : t('garage.recent')}</h4>
                         </div>
                         <div className="space-y-3">
                             {(showAllServices ? services : services.slice(0, 3)).map((service) => {

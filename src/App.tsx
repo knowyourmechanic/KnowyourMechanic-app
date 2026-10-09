@@ -17,6 +17,11 @@ const GarageDashboard = lazy(() => import('./pages/garage/Dashboard'));
 const GarageSettings = lazy(() => import('./pages/garage/Settings'));
 const GarageSupport = lazy(() => import('./pages/garage/Support'));
 const GarageServices = lazy(() => import('./pages/garage/Services'));
+const GarageStart = lazy(() => import('./pages/garage/Start'));
+const GaragePending = lazy(() => import('./pages/garage/Pending'));
+const GarageConfirm = lazy(() => import('./pages/garage/ConfirmOwnership'));
+const GarageTeam = lazy(() => import('./pages/garage/Team'));
+const GarageWorkHistory = lazy(() => import('./pages/garage/WorkHistory'));
 const AdminDashboard = lazy(() => import('./pages/admin/Dashboard'));
 const AdminEmployees = lazy(() => import('./pages/admin/Employees'));
 const AdminEmployeeDetail = lazy(() => import('./pages/admin/EmployeeDetail'));
@@ -42,7 +47,7 @@ function LoadingScreen() {
 type Role = 'customer' | 'garage' | 'admin' | 'employee' | 'support';
 
 function homeForRole(role: string): string {
-  if (role === 'garage') return localStorage.getItem('garageOnboarded') ? '/garage' : '/garage/onboarding';
+  if (role === 'garage') return localStorage.getItem('garageOnboarded') ? '/garage' : '/garage/start';
   if (role === 'admin' || role === 'employee' || role === 'support') return `/${role}`;
   return '/customer';
 }
@@ -108,6 +113,11 @@ export default function App() {
           <Route path="/garage/settings" element={<ProtectedRoute requiredRole="garage"><GarageSettings /></ProtectedRoute>} />
           <Route path="/garage/support" element={<ProtectedRoute requiredRole="garage"><GarageSupport /></ProtectedRoute>} />
           <Route path="/garage/services" element={<ProtectedRoute requiredRole="garage"><GarageServices /></ProtectedRoute>} />
+          <Route path="/garage/start" element={<ProtectedRoute requiredRole="garage"><GarageStart /></ProtectedRoute>} />
+          <Route path="/garage/pending" element={<ProtectedRoute requiredRole="garage"><GaragePending /></ProtectedRoute>} />
+          <Route path="/garage/confirm" element={<ProtectedRoute requiredRole="garage"><GarageConfirm /></ProtectedRoute>} />
+          <Route path="/garage/team" element={<ProtectedRoute requiredRole="garage"><GarageTeam /></ProtectedRoute>} />
+          <Route path="/garage/work" element={<ProtectedRoute requiredRole="garage"><GarageWorkHistory /></ProtectedRoute>} />
 
           {/* Admin Routes (Nested in Layout) */}
           <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminLayout /></ProtectedRoute>}>

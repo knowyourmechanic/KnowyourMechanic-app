@@ -37,6 +37,10 @@ Mobile: `npm run build && npx cap sync`, then open `android/` or `ios/`.
 `customer`, `garage` (self-service — one number can hold both), and
 `admin`, `employee`, `support` (granted by an admin only).
 
+Inside `garage`, a person is either a garage **owner** or a garage **employee**
+(mechanic/staff) — see `supabase/GARAGE_STAFF.md`. KYM's own field staff use the
+separate `employee` role.
+
 ## Languages
 
 English, Hindi and Marathi (`src/i18n`). English is the source of truth; any

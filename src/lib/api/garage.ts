@@ -10,6 +10,7 @@ export async function getMyGarage(ownerProfileId: string): Promise<GarageRow | n
         .from('garages')
         .select('*')
         .eq('owner_profile_id', ownerProfileId)
+        .is('owner_declined_at', null)
         // Deterministic pick (the demo seed has one owner across many garages;
         // real owners have a single garage). The demo garage id sorts first.
         .order('id', { ascending: true })
@@ -43,7 +44,7 @@ export async function lookupReferralCode(code: string): Promise<string | null> {
     return (data as string | null) ?? null;
 }
 
-export async function saveGarageBusinessInfo(ownerProfileId: string, info: GarageBusinessInfo): Promise<string> {
+export async function saveGarageBusinessInfo(ownerProfileId: string, info: GarageBusinessInfo, garageId?: string): Promise<string> {
     const payload: TablesInsert<'garages'> = {
         owner_profile_id: ownerProfileId,
         name: info.name.trim(),
@@ -57,9 +58,9 @@ export async function saveGarageBusinessInfo(ownerProfileId: string, info: Garag
         business_type: info.businessType as Enums<'business_type'>,
         legal_business_name: info.legalBusinessName || info.name,
     };
-    const existing = await getMyGarage(ownerProfileId);
-    let garageId: string;
+    const existing = garageId ? { id: garageId } : await getMyGarage(ownerProfileId);
     if (existing) {
+        // owner_profile_id is server-managed on update (kept as is).
         const { error } = await supabase.from('garages').update(payload).eq('id', existing.id);
         if (error) throw new Error(error.message);
         garageId = existing.id;
@@ -69,10 +70,13 @@ export async function saveGarageBusinessInfo(ownerProfileId: string, info: Garag
         garageId = (data as { id: string }).id;
     }
     // Employee attribution is server-side (employees aren't readable by garages).
-    if (info.referralCode) {
-        await supabase.rpc('apply_garage_referral', { p_garage_id: garageId, p_code: info.referralCode });
-    }
+    if (info.referralCode) await applyGarageReferral(garageId, info.referralCode);
     return garageId;
+}
+
+// Credits the KYM field employee whose referral code brought this garage in.
+export async function applyGarageReferral(garageId: string, code: string): Promise<void> {
+    await supabase.rpc('apply_garage_referral', { p_garage_id: garageId, p_code: code });
 }
 
 // Uploads the garage's cover photo to storage and saves its public URL on the

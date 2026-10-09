@@ -30,8 +30,9 @@ Deno.serve(async (req) => {
     return json(500, { error: e instanceof Error ? e.message : "Server not configured." });
   }
 
-  // Ownership: owns_garage() is required to read anything but your own records,
-  // and customers can't reach this with a garage they don't own.
+  // Authorization: RLS must let the caller read the record, and
+  // can_operate_service() must allow acting on it (customers can read their own
+  // records but never operate them).
   const callerClient = createClient(supabaseUrl, anonKey, {
     global: { headers: { Authorization: authHeader } },
     auth: { persistSession: false },
@@ -42,8 +43,9 @@ Deno.serve(async (req) => {
     .eq("id", body.serviceRecordId)
     .maybeSingle();
   if (!owns) return json(403, { error: "Not authorized for this service record." });
-  const { data: isOwner } = await callerClient.rpc("owns_garage", { target_garage_id: owns.garage_id });
-  if (!isOwner) return json(403, { error: "Not authorized for this service record." });
+  // Owner: any record of the garage. Garage staff: only records they logged.
+  const { data: canOperate } = await callerClient.rpc("can_operate_service", { p_service_record_id: owns.id });
+  if (!canOperate) return json(403, { error: "Not authorized for this service record." });
   if (owns.status !== "pending_otp") {
     return json(400, { error: "This service is already verified." });
   }

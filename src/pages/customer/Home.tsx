@@ -6,7 +6,7 @@ import { useLocation } from '../../hooks/useLocation';
 import { useAuth } from '../../contexts/AuthContext';
 import {
     buildPassports, discoverGarages, formatDistance, getCustomerProfile, getCustomerServiceHistory, getGarageServiceCounts,
-    getUnratedGarage, reminderFor, submitReview,
+    getUnratedGarage, reminderFor, submitReview, rateService,
     type NearbyGarage, type UnratedGarage,
 } from '../../lib/data';
 import { getOpenStatus, openLabel } from '../../lib/hours';
@@ -151,6 +151,8 @@ export default function CustomerHome() {
         setReviewError('');
         try {
             await submitReview(userData._id, unrated.garageId, reviewRating, reviewComment);
+            // The same stars rate that job (credited to the mechanic who did it).
+            rateService(unrated.serviceId, reviewRating).catch(() => {});
             setUnrated(null);
             setReviewRating(0);
             setReviewComment('');

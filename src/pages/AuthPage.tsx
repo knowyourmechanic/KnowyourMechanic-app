@@ -39,7 +39,7 @@ export default function AuthPage() {
         setUserData(userData);
         localStorage.setItem('userRole', role);
         refreshRoles().catch(() => {});
-        navigate(await routeForRole(role, profile.id));
+        navigate(await routeForRole(role));
     };
 
     const handleSendOtp = async (e: React.FormEvent) => {

@@ -202,6 +202,7 @@ export async function getGaragePublic(garageId: string): Promise<GarageDetailPub
 // First completed-service garage the customer hasn't reviewed yet (for the "rate this" nudge).
 // Returns null if everything is reviewed or there's no history.
 export interface UnratedGarage {
+    serviceId: string;
     garageId: string;
     garageName: string;
     serviceDescription: string;
@@ -215,7 +216,7 @@ export async function getUnratedGarage(customerProfileId: string, phone: string)
     const reviewed = new Set((mine.data ?? []).map((r: { garage_id: string }) => r.garage_id));
     const svc = history.find((h) => h.garage_id && !reviewed.has(h.garage_id));
     return svc
-        ? { garageId: svc.garage_id, garageName: svc.garage_name, serviceDescription: svc.description, serviceDate: svc.created_at }
+        ? { serviceId: svc.id, garageId: svc.garage_id, garageName: svc.garage_name, serviceDescription: svc.description, serviceDate: svc.created_at }
         : null;
 }
 
@@ -260,6 +261,8 @@ export async function discoverGarages(lat: number, lng: number, radiusKm = 5): P
         .select('id,name,phone,address,latitude,longitude,service_hours,working_days,photo_url,rating,total_reviews,created_at')
         .eq('is_verified', true)
         .eq('is_offboarded', false)
+        // Garages set up by an employee are listed once their owner confirms.
+        .not('owner_confirmed_at', 'is', null)
         .not('latitude', 'is', null)
         .not('longitude', 'is', null);
 

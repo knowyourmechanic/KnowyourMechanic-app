@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation as useRouteLocation } from 'react-router-dom';
 import {
     Building2, Phone, Mail, QrCode,
     CheckCircle, ArrowRight, ArrowLeft, Loader2, AlertTriangle,
@@ -10,7 +10,9 @@ import TimeRangePicker from '../../components/TimeRangePicker';
 import WorkingDaysPicker from '../../components/WorkingDaysPicker';
 import LocationPicker from '../../components/LocationPicker';
 import { useAuth } from '../../contexts/AuthContext';
-import { getMyGarage, saveGarageBusinessInfo, saveGarageQr, completeGarageOnboarding, lookupReferralCode, saveGaragePhoto } from '../../lib/data';
+import { saveGarageBusinessInfo, saveGarageQr, completeGarageOnboarding, lookupReferralCode, saveGaragePhoto, getMyGarageMembership, createGarageAsStaff, applyGarageReferral } from '../../lib/data';
+import { garageHome } from '../../lib/roles';
+import { useI18n } from '../../i18n';
 import { compressImage } from '../../lib/image';
 import { errorMessage } from '../../lib/errors';
 
@@ -74,7 +76,17 @@ export default function GarageOnboardingWizard() {
     });
 
     const { userData } = useAuth();
+    const { t } = useI18n();
     const [garageId, setGarageId] = useState('');
+    // Employee setting the garage up for their owner (from /garage/start).
+    const routeState = useRouteLocation().state as { mode?: string; ownerPhone?: string; ownerName?: string; staffName?: string } | null;
+    const [staffSetup, setStaffSetup] = useState<{ ownerPhone: string; ownerName: string; staffName: string } | null>(
+        routeState?.mode === 'staff' && routeState.ownerPhone
+            ? { ownerPhone: routeState.ownerPhone, ownerName: routeState.ownerName ?? '', staffName: routeState.staffName ?? '' }
+            : null,
+    );
+    const [continuingAsStaff, setContinuingAsStaff] = useState(false);
+    const isStaffMode = !!staffSetup || continuingAsStaff;
 
     useEffect(() => {
         if (userData?._id) checkOnboardingStatus();
@@ -83,13 +95,16 @@ export default function GarageOnboardingWizard() {
 
     const checkOnboardingStatus = async () => {
         try {
-            const garage = await getMyGarage(userData!._id);
-            if (garage) {
-                setGarageId(garage.id);
-                if (garage.onboarding_status === 'completed') {
-                    localStorage.setItem('garageOnboarded', 'true');
-                    navigate('/garage');
+            const m = await getMyGarageMembership();
+            if (m) {
+                const isOwnerSetup = m.memberRole === 'owner' && m.ownerConfirmed;
+                const isMySetup = m.memberRole === 'staff' && m.status === 'active' && m.onboardedByMe;
+                if ((!isOwnerSetup && !isMySetup) || m.onboardingComplete) {
+                    navigate(await garageHome(), { replace: true });
+                    return;
                 }
+                setGarageId(m.garageId);
+                if (isMySetup) { setContinuingAsStaff(true); setStaffSetup(null); }
             }
         } catch (err) {
             console.error('Error checking status:', err);
@@ -177,7 +192,7 @@ export default function GarageOnboardingWizard() {
         setError('');
 
         try {
-            const id = await saveGarageBusinessInfo(userData!._id, {
+            const info = {
                 name: business.name,
                 email: business.email,
                 phone: business.phone,
@@ -189,7 +204,15 @@ export default function GarageOnboardingWizard() {
                 legalBusinessName: business.legalBusinessName || business.name,
                 // Only attach a code the server confirmed.
                 referralCode: referralStatus.valid ? business.referralCode : undefined,
-            });
+            };
+            let id: string;
+            if (staffSetup && !garageId) {
+                // Employee: the garage is created in the owner's name.
+                id = await createGarageAsStaff({ ...info, ...staffSetup });
+                if (info.referralCode) await applyGarageReferral(id, info.referralCode).catch(() => {});
+            } else {
+                id = await saveGarageBusinessInfo(userData!._id, info, garageId || undefined);
+            }
             if (photoFile) {
                 // Non-fatal: the garage can add a photo later in Settings.
                 await saveGaragePhoto(id, await compressImage(photoFile)).catch(() => {});
@@ -287,7 +310,7 @@ export default function GarageOnboardingWizard() {
                         {step === 'success' && 'All Set!'}
                     </h1>
                     <p className="text-slate-500 dark:text-[var(--app-muted)]">
-                        {step === 'business' && 'Tell us about your garage'}
+                        {step === 'business' && (isStaffMode ? t('onb.staffSubtitle', { owner: staffSetup?.ownerName || t('onb.yourOwner') }) : 'Tell us about your garage')}
                         {step === 'qr' && 'Customers pay you directly on this QR'}
                         {step === 'success' && 'Your garage is ready'}
                     </p>
@@ -589,10 +612,10 @@ export default function GarageOnboardingWizard() {
                             <div className="w-24 h-24 bg-green-100 dark:bg-green-900/40 rounded-full flex items-center justify-center mx-auto mb-6">
                                 <CheckCircle className="w-12 h-12 text-green-600" />
                             </div>
-                            <h2 className="text-2xl font-black text-slate-900 dark:text-[var(--app-text)] mb-2">Welcome Aboard!</h2>
-                            <p className="text-slate-500 dark:text-[var(--app-muted)] mb-8">Your garage is all set up and ready to go.</p>
+                            <h2 className="text-2xl font-black text-slate-900 dark:text-[var(--app-text)] mb-2">{t('onb.doneTitle')}</h2>
+                            <p className="text-slate-500 dark:text-[var(--app-muted)] mb-8">{isStaffMode ? t('onb.staffDone') : t('onb.ownerDone')}</p>
                             <Loader2 className="w-6 h-6 animate-spin text-blue-600 mx-auto" />
-                            <p className="text-slate-400 dark:text-[var(--app-muted)] text-sm mt-2">Redirecting to dashboard...</p>
+                            <p className="text-slate-400 dark:text-[var(--app-muted)] text-sm mt-2">{t('onb.redirecting')}</p>
                         </motion.div>
                     )}
                 </AnimatePresence>

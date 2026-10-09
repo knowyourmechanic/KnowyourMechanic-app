@@ -3,6 +3,7 @@ import { TrendingUp } from 'lucide-react';
 import { useI18n } from '../i18n';
 
 interface Props {
+    title?: string;
     // Completed services only.
     services: { amount: number; createdAt: string }[];
 }
@@ -13,7 +14,7 @@ const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDat
 // Earnings at a glance: today / 7 days / 30 days, plus a 7-day bar chart.
 // One series, one hue (no legend; the title names it). Tap/hover a bar for its
 // value; the same numbers are exposed as text for screen readers.
-export default function EarningsCard({ services }: Props) {
+export default function EarningsCard({ services, title }: Props) {
     const { t, locale } = useI18n();
     const [active, setActive] = useState<number | null>(null);
 
@@ -41,7 +42,7 @@ export default function EarningsCard({ services }: Props) {
         <section className="bg-white dark:bg-[var(--app-surface)] rounded-3xl border border-slate-100 dark:border-[var(--app-border)] p-5 mb-6 shadow-sm">
             <div className="flex items-center justify-between mb-4">
                 <h3 className="font-black text-slate-900 dark:text-[var(--app-text)] flex items-center gap-2">
-                    <TrendingUp className="w-5 h-5 text-blue-600" /> {t('earnings.title')}
+                    <TrendingUp className="w-5 h-5 text-blue-600" /> {title ?? t('earnings.title')}
                 </h3>
                 <span className="text-xs text-slate-400 dark:text-[var(--app-muted)]">{t('earnings.jobsToday', { count: jobsToday })}</span>
             </div>

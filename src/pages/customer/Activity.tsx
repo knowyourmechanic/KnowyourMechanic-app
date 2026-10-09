@@ -4,7 +4,8 @@ import { Clock, Wrench, Loader2, Calendar, AlertCircle, ArrowLeft, Star, X, Chec
 import { useNavigate } from 'react-router-dom';
 import { useI18n } from '../../i18n';
 import { useAuth } from '../../contexts/AuthContext';
-import { getCustomerServiceHistory, getMyReview, submitReview, submitReport } from '../../lib/data';
+import { getCustomerServiceHistory, getMyReview, submitReview, submitReport, getMyServiceRatings, rateService } from '../../lib/data';
+import Stars from '../../components/Stars';
 import { useToast } from '../../components/Toast';
 
 interface ServiceRecord {
@@ -22,6 +23,7 @@ interface ServiceRecord {
     amount: number;
     platformFee: number;
     invoiceNumber: string | null;
+    performedBy: string | null;
     createdAt: string;
 }
 
@@ -62,6 +64,20 @@ export default function CustomerActivity() {
     const { userData } = useAuth();
     const { t } = useI18n();
     const toast = useToast();
+    // Per-service ("this job") ratings — they also build the mechanic's record.
+    const [jobRatings, setJobRatings] = useState<Map<string, number>>(new Map());
+
+    const rateJob = async (serviceId: string, rating: number) => {
+        const prev = jobRatings.get(serviceId);
+        setJobRatings((m) => new Map(m).set(serviceId, rating));
+        try {
+            await rateService(serviceId, rating);
+            if (prev == null) toast.success(t('activity.jobRated'));
+        } catch {
+            setJobRatings((m) => { const n = new Map(m); if (prev == null) n.delete(serviceId); else n.set(serviceId, prev); return n; });
+            toast.error(t('home.rateFailed'));
+        }
+    };
 
     useEffect(() => {
         if (userData?.phoneNumber) fetchServiceHistory();
@@ -82,9 +98,11 @@ export default function CustomerActivity() {
                 amount: Number(r.amount),
                 platformFee: Number(r.platform_fee || 0),
                 invoiceNumber: r.invoice_number,
+                performedBy: r.performed_by_name,
                 createdAt: r.created_at,
             }));
             setServices(mapped);
+            getMyServiceRatings(mapped.map((m) => m._id)).then(setJobRatings).catch(() => {});
 
             // Load the customer's own reviews for the garages in their history.
             const uniqueGarageIds = [...new Set(mapped.map((s) => s.garageId?._id).filter(Boolean))] as string[];
@@ -264,6 +282,15 @@ ${service.vehicleNumber ? `<div class="row"><span class="muted">Vehicle</span><s
                                     </div>
                                 </div>
 
+                                {/* This job: who did it + a one-tap rating */}
+                                <div className="flex items-center justify-between gap-3 py-3 border-t border-slate-100 dark:border-[var(--app-border)]">
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-semibold text-slate-700 dark:text-[var(--app-text)]">{t('activity.rateJob')}</p>
+                                        {service.performedBy && <p className="text-xs text-slate-500 dark:text-[var(--app-muted)] truncate">{t('activity.servicedBy', { name: service.performedBy })}</p>}
+                                    </div>
+                                    <Stars value={jobRatings.get(service._id) ?? 0} onChange={(v) => rateJob(service._id, v)} label={t('activity.rateJob')} />
+                                </div>
+
                                 {/* Date, Amount */}
                                 <div className="flex items-center justify-between py-3 border-t border-slate-100 dark:border-[var(--app-border)]">
                                     <div className="flex items-center gap-1 text-slate-500 dark:text-[var(--app-muted)] text-sm">
@@ -359,7 +386,7 @@ ${service.vehicleNumber ? `<div class="row"><span class="muted">Vehicle</span><s
                                                 className="flex items-center gap-2 text-blue-600 text-sm font-semibold"
                                             >
                                                 <Star className="w-4 h-4" />
-                                                Rate this service
+                                                {t('activity.rateGarage')}
                                             </button>
                                         )}
                                     </div>

@@ -9,6 +9,7 @@ export type Database = {
           updated_at: string;
           value: string;
         };
+        ComputedFields: never;
         Insert: {
           key: string;
           updated_at?: string;
@@ -35,6 +36,7 @@ export type Database = {
           updated_at: string;
           vehicle_number: string | null;
         };
+        ComputedFields: never;
         Insert: {
           created_at?: string;
           customer_phone: string;
@@ -98,6 +100,7 @@ export type Database = {
           role: Database["public"]["Enums"]["app_role"];
           updated_at: string;
         };
+        ComputedFields: never;
         Insert: {
           created_at?: string;
           email?: string | null;
@@ -143,6 +146,7 @@ export type Database = {
           sort_order: number;
           updated_at: string;
         };
+        ComputedFields: never;
         Insert: {
           code: string;
           created_at?: string;
@@ -184,6 +188,7 @@ export type Database = {
           razorpay_payment_id: string | null;
           status: string;
         };
+        ComputedFields: never;
         Insert: {
           amount: number;
           created_at?: string;
@@ -224,6 +229,7 @@ export type Database = {
           note: string | null;
           service_record_id: string | null;
         };
+        ComputedFields: never;
         Insert: {
           amount: number;
           created_at?: string;
@@ -259,12 +265,71 @@ export type Database = {
           },
         ];
       };
+      garage_members: {
+        Row: {
+          created_at: string;
+          display_name: string | null;
+          ended_at: string | null;
+          garage_id: string;
+          id: string;
+          joined_at: string | null;
+          member_role: string;
+          profile_id: string;
+          requested_by: string;
+          status: string;
+          updated_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          created_at?: string;
+          display_name?: string | null;
+          ended_at?: string | null;
+          garage_id: string;
+          id?: string;
+          joined_at?: string | null;
+          member_role: string;
+          profile_id: string;
+          requested_by?: string;
+          status: string;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          display_name?: string | null;
+          ended_at?: string | null;
+          garage_id?: string;
+          id?: string;
+          joined_at?: string | null;
+          member_role?: string;
+          profile_id?: string;
+          requested_by?: string;
+          status?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "garage_members_garage_id_fkey";
+            columns: ["garage_id"];
+            isOneToOne: false;
+            referencedRelation: "garages";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "garage_members_profile_id_fkey";
+            columns: ["profile_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       garage_payout_details: {
         Row: {
           garage_id: string;
           qr_image_path: string | null;
           updated_at: string;
         };
+        ComputedFields: never;
         Insert: {
           garage_id: string;
           qr_image_path?: string | null;
@@ -297,6 +362,7 @@ export type Database = {
           price: number;
           updated_at: string;
         };
+        ComputedFields: never;
         Insert: {
           created_at?: string;
           description?: string | null;
@@ -337,6 +403,7 @@ export type Database = {
           penalty_amount: number;
           updated_at: string;
         };
+        ComputedFields: never;
         Insert: {
           fraud_strikes?: number;
           garage_id: string;
@@ -375,7 +442,10 @@ export type Database = {
           legal_business_name: string | null;
           longitude: number | null;
           name: string;
+          onboarded_by_profile_id: string | null;
           onboarding_status: Database["public"]["Enums"]["onboarding_status"];
+          owner_confirmed_at: string | null;
+          owner_declined_at: string | null;
           owner_profile_id: string;
           phone: string | null;
           photo_url: string | null;
@@ -386,6 +456,7 @@ export type Database = {
           updated_at: string;
           working_days: string[];
         };
+        ComputedFields: never;
         Insert: {
           address?: string | null;
           assigned_employee_id?: string | null;
@@ -399,7 +470,10 @@ export type Database = {
           legal_business_name?: string | null;
           longitude?: number | null;
           name: string;
+          onboarded_by_profile_id?: string | null;
           onboarding_status?: Database["public"]["Enums"]["onboarding_status"];
+          owner_confirmed_at?: string | null;
+          owner_declined_at?: string | null;
           owner_profile_id: string;
           phone?: string | null;
           photo_url?: string | null;
@@ -423,7 +497,10 @@ export type Database = {
           legal_business_name?: string | null;
           longitude?: number | null;
           name?: string;
+          onboarded_by_profile_id?: string | null;
           onboarding_status?: Database["public"]["Enums"]["onboarding_status"];
+          owner_confirmed_at?: string | null;
+          owner_declined_at?: string | null;
           owner_profile_id?: string;
           phone?: string | null;
           photo_url?: string | null;
@@ -440,6 +517,13 @@ export type Database = {
             columns: ["assigned_employee_id"];
             isOneToOne: false;
             referencedRelation: "employees";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "garages_onboarded_by_profile_id_fkey";
+            columns: ["onboarded_by_profile_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
             referencedColumns: ["id"];
           },
           {
@@ -469,6 +553,7 @@ export type Database = {
           state: Database["public"]["Enums"]["delivery_state"];
           updated_at: string;
         };
+        ComputedFields: never;
         Insert: {
           acked_at?: string | null;
           channel: Database["public"]["Enums"]["delivery_channel"];
@@ -535,6 +620,7 @@ export type Database = {
           type: Database["public"]["Enums"]["notification_type"];
           updated_at: string;
         };
+        ComputedFields: never;
         Insert: {
           body?: string | null;
           channel?: Database["public"]["Enums"]["invoice_delivery_channel"] | null;
@@ -596,6 +682,7 @@ export type Database = {
           status: string;
           updated_at: string;
         };
+        ComputedFields: never;
         Insert: {
           amount: number;
           booking_id?: string | null;
@@ -663,6 +750,7 @@ export type Database = {
           profile_id: string;
           role: Database["public"]["Enums"]["app_role"];
         };
+        ComputedFields: never;
         Insert: {
           created_at?: string;
           profile_id: string;
@@ -697,6 +785,7 @@ export type Database = {
           vehicle_number: string | null;
           vehicle_year: string | null;
         };
+        ComputedFields: never;
         Insert: {
           auth_user_id?: string | null;
           created_at?: string;
@@ -739,6 +828,7 @@ export type Database = {
           status: Database["public"]["Enums"]["report_status"];
           updated_at: string;
         };
+        ComputedFields: never;
         Insert: {
           admin_notes?: string | null;
           created_at?: string;
@@ -799,6 +889,7 @@ export type Database = {
           rating: number;
           updated_at: string;
         };
+        ComputedFields: never;
         Insert: {
           comment?: string | null;
           created_at?: string;
@@ -844,6 +935,7 @@ export type Database = {
           sort_order: number;
           updated_at: string;
         };
+        ComputedFields: never;
         Insert: {
           code: string;
           created_at?: string;
@@ -882,6 +974,7 @@ export type Database = {
           updated_at: string;
           verified_at: string | null;
         };
+        ComputedFields: never;
         Insert: {
           attempt_count?: number;
           consumed?: boolean;
@@ -926,12 +1019,56 @@ export type Database = {
           },
         ];
       };
+      service_ratings: {
+        Row: {
+          comment: string | null;
+          created_at: string;
+          customer_profile_id: string;
+          rating: number;
+          service_record_id: string;
+          updated_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          comment?: string | null;
+          created_at?: string;
+          customer_profile_id: string;
+          rating: number;
+          service_record_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          comment?: string | null;
+          created_at?: string;
+          customer_profile_id?: string;
+          rating?: number;
+          service_record_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "service_ratings_customer_profile_id_fkey";
+            columns: ["customer_profile_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "service_ratings_service_record_id_fkey";
+            columns: ["service_record_id"];
+            isOneToOne: true;
+            referencedRelation: "service_records";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       service_record_failures: {
         Row: {
           created_at: string;
           failure_category_code: string;
           service_record_id: string;
         };
+        ComputedFields: never;
         Insert: {
           created_at?: string;
           failure_category_code: string;
@@ -965,6 +1102,7 @@ export type Database = {
           service_category_code: string;
           service_record_id: string;
         };
+        ComputedFields: never;
         Insert: {
           created_at?: string;
           service_category_code: string;
@@ -997,6 +1135,7 @@ export type Database = {
           amount: number;
           approved_by_customer: boolean | null;
           created_at: string;
+          created_by_profile_id: string | null;
           customer_phone: string;
           customer_profile_id: string | null;
           description: string;
@@ -1011,6 +1150,7 @@ export type Database = {
           model_year: number | null;
           odometer_km: number | null;
           payment_method: Database["public"]["Enums"]["payment_method"] | null;
+          performed_by_name: string | null;
           platform_fee: number;
           razorpay_order_id: string | null;
           razorpay_payment_id: string | null;
@@ -1026,10 +1166,12 @@ export type Database = {
           vehicle_type: Database["public"]["Enums"]["vehicle_type"];
           verification_method: Database["public"]["Enums"]["verification_method"] | null;
         };
+        ComputedFields: never;
         Insert: {
           amount: number;
           approved_by_customer?: boolean | null;
           created_at?: string;
+          created_by_profile_id?: string | null;
           customer_phone: string;
           customer_profile_id?: string | null;
           description: string;
@@ -1044,6 +1186,7 @@ export type Database = {
           model_year?: number | null;
           odometer_km?: number | null;
           payment_method?: Database["public"]["Enums"]["payment_method"] | null;
+          performed_by_name?: string | null;
           platform_fee?: number;
           razorpay_order_id?: string | null;
           razorpay_payment_id?: string | null;
@@ -1063,6 +1206,7 @@ export type Database = {
           amount?: number;
           approved_by_customer?: boolean | null;
           created_at?: string;
+          created_by_profile_id?: string | null;
           customer_phone?: string;
           customer_profile_id?: string | null;
           description?: string;
@@ -1077,6 +1221,7 @@ export type Database = {
           model_year?: number | null;
           odometer_km?: number | null;
           payment_method?: Database["public"]["Enums"]["payment_method"] | null;
+          performed_by_name?: string | null;
           platform_fee?: number;
           razorpay_order_id?: string | null;
           razorpay_payment_id?: string | null;
@@ -1093,6 +1238,13 @@ export type Database = {
           verification_method?: Database["public"]["Enums"]["verification_method"] | null;
         };
         Relationships: [
+          {
+            foreignKeyName: "service_records_created_by_profile_id_fkey";
+            columns: ["created_by_profile_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "service_records_customer_profile_id_fkey";
             columns: ["customer_profile_id"];
@@ -1123,6 +1275,56 @@ export type Database = {
           },
         ];
       };
+      staff_reviews: {
+        Row: {
+          garage_id: string;
+          member_id: string;
+          note: string | null;
+          rating: number;
+          staff_profile_id: string;
+          updated_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          garage_id: string;
+          member_id: string;
+          note?: string | null;
+          rating: number;
+          staff_profile_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          garage_id?: string;
+          member_id?: string;
+          note?: string | null;
+          rating?: number;
+          staff_profile_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "staff_reviews_garage_id_fkey";
+            columns: ["garage_id"];
+            isOneToOne: false;
+            referencedRelation: "garages";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "staff_reviews_member_id_fkey";
+            columns: ["member_id"];
+            isOneToOne: true;
+            referencedRelation: "garage_members";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "staff_reviews_staff_profile_id_fkey";
+            columns: ["staff_profile_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       support_messages: {
         Row: {
           body: string;
@@ -1132,6 +1334,7 @@ export type Database = {
           sender_profile_id: string;
           ticket_id: string;
         };
+        ComputedFields: never;
         Insert: {
           body: string;
           created_at?: string;
@@ -1180,6 +1383,7 @@ export type Database = {
           subject: string | null;
           updated_at: string;
         };
+        ComputedFields: never;
         Insert: {
           claimed_at?: string | null;
           claimed_by?: string | null;
@@ -1236,6 +1440,7 @@ export type Database = {
           push_token: string;
           updated_at: string;
         };
+        ComputedFields: never;
         Insert: {
           created_at?: string;
           id?: string;
@@ -1276,6 +1481,7 @@ export type Database = {
           updated_at: string;
           vehicle_types: Database["public"]["Enums"]["vehicle_type"][];
         };
+        ComputedFields: never;
         Insert: {
           code: string;
           created_at?: string;
@@ -1307,6 +1513,7 @@ export type Database = {
           updated_at: string;
           vehicle_type: Database["public"]["Enums"]["vehicle_type"];
         };
+        ComputedFields: never;
         Insert: {
           code: string;
           created_at?: string;
@@ -1345,6 +1552,7 @@ export type Database = {
           token: string;
           vehicle_number: string;
         };
+        ComputedFields: never;
         Insert: {
           created_at?: string;
           profile_id: string;
@@ -1404,6 +1612,7 @@ export type Database = {
         Args: { p_role: Database["public"]["Enums"]["app_role"] };
         Returns: Database["public"]["Enums"]["app_role"][];
       };
+      add_staff_by_phone: { Args: { p_garage_id: string; p_name: string; p_phone: string }; Returns: string };
       admin_fee_overview: {
         Args: Record<PropertyKey, never>;
         Returns: {
@@ -1422,6 +1631,11 @@ export type Database = {
         Returns: string;
       };
       apply_garage_referral: { Args: { p_code: string; p_garage_id: string }; Returns: string };
+      assert_can_become_staff: { Args: { p_profile: string }; Returns: undefined };
+      can_manage_garage: { Args: { target_garage_id: string }; Returns: boolean };
+      can_operate_garage: { Args: { target_garage_id: string }; Returns: boolean };
+      can_operate_service: { Args: { p_service_record_id: string }; Returns: boolean };
+      cancel_join_request: { Args: Record<PropertyKey, never>; Returns: undefined };
       claim_support_ticket: {
         Args: { p_ticket_id: string };
         Returns: {
@@ -1455,6 +1669,24 @@ export type Database = {
           status: Database["public"]["Enums"]["service_record_status"];
           verified: boolean;
         }[];
+      };
+      create_garage_as_staff: {
+        Args: {
+          p_address: string;
+          p_business_type: Database["public"]["Enums"]["business_type"];
+          p_email: string;
+          p_latitude: number;
+          p_legal_business_name: string;
+          p_longitude: number;
+          p_name: string;
+          p_owner_name: string;
+          p_owner_phone: string;
+          p_phone: string;
+          p_service_hours: string;
+          p_staff_name: string;
+          p_working_days: string[];
+        };
+        Returns: string;
       };
       create_notification_delivery: {
         Args: {
@@ -1500,6 +1732,14 @@ export type Database = {
       current_role: { Args: Record<PropertyKey, never>; Returns: Database["public"]["Enums"]["app_role"] };
       dearmor: { Args: { "": string }; Returns: string };
       employee_assigned_to_garage: { Args: { target_garage_id: string }; Returns: boolean };
+      find_garages_by_owner_phone: {
+        Args: { p_owner_phone: string };
+        Returns: {
+          address: string;
+          garage_id: string;
+          garage_name: string;
+        }[];
+      };
       garage_owed_balance: { Args: { p_garage_id: string }; Returns: number };
       garage_service_metrics: {
         Args: { p_garage_ids?: string[] };
@@ -1519,6 +1759,33 @@ export type Database = {
           outstanding: number;
         }[];
       };
+      garage_settlement_status_internal: {
+        Args: { p_garage_id: string };
+        Returns: {
+          due_now: number;
+          locked: boolean;
+          outstanding: number;
+        }[];
+      };
+      garage_team: {
+        Args: { p_garage_id: string };
+        Returns: {
+          customer_avg: number;
+          customer_count: number;
+          ended_at: string;
+          jobs_30d: number;
+          jobs_total: number;
+          joined_at: string;
+          member_id: string;
+          name: string;
+          owner_note: string;
+          owner_rating: number;
+          phone: string;
+          profile_id: string;
+          requested_by: string;
+          status: string;
+        }[];
+      };
       gen_random_uuid: { Args: Record<PropertyKey, never>; Returns: string };
       gen_salt: { Args: { "": string }; Returns: string };
       get_shared_vehicle_history: {
@@ -1534,7 +1801,9 @@ export type Database = {
       };
       has_completed_service_with: { Args: { p_garage_id: string }; Returns: boolean };
       is_admin: { Args: Record<PropertyKey, never>; Returns: boolean };
+      is_garage_staff: { Args: { target_garage_id: string }; Returns: boolean };
       is_support: { Args: Record<PropertyKey, never>; Returns: boolean };
+      leave_garage: { Args: Record<PropertyKey, never>; Returns: undefined };
       link_current_auth_profile: {
         Args: Record<PropertyKey, never>;
         Returns: {
@@ -1558,6 +1827,18 @@ export type Database = {
         };
       };
       lookup_referral_code: { Args: { p_code: string }; Returns: string };
+      my_garage_membership: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          garage_id: string;
+          garage_name: string;
+          member_role: string;
+          onboarded_by_me: boolean;
+          onboarding_status: Database["public"]["Enums"]["onboarding_status"];
+          owner_confirmed: boolean;
+          status: string;
+        }[];
+      };
       my_roles: { Args: Record<PropertyKey, never>; Returns: Database["public"]["Enums"]["app_role"][] };
       normalize_indian_phone: { Args: { raw_phone: string }; Returns: string };
       open_support_ticket: {
@@ -1574,7 +1855,14 @@ export type Database = {
         }[];
       };
       purge_stale_pending_service_records: { Args: { p_older_than?: string }; Returns: number };
+      rate_service: {
+        Args: { p_comment?: string; p_rating: number; p_service_record_id: string };
+        Returns: undefined;
+      };
+      rate_staff: { Args: { p_member_id: string; p_note: string; p_rating: number }; Returns: undefined };
       register_device: { Args: { p_platform: string; p_push_token: string }; Returns: undefined };
+      remove_staff: { Args: { p_member_id: string }; Returns: undefined };
+      request_to_join_garage: { Args: { p_display_name: string; p_garage_id: string }; Returns: string };
       resolve_support_ticket: {
         Args: { p_ticket_id: string };
         Returns: {
@@ -1598,7 +1886,24 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      respond_join_request: { Args: { p_approve: boolean; p_member_id: string }; Returns: undefined };
+      respond_to_garage_claim: { Args: { p_accept: boolean; p_garage_id: string }; Returns: undefined };
       revoke_vehicle_share: { Args: { p_vehicle_number: string }; Returns: undefined };
+      staff_work_history: {
+        Args: { p_profile_id?: string };
+        Returns: {
+          customer_avg: number;
+          customer_count: number;
+          ended_at: string;
+          garage_name: string;
+          jobs_completed: number;
+          joined_at: string;
+          member_id: string;
+          owner_note: string;
+          owner_rating: number;
+          status: string;
+        }[];
+      };
       verify_service_otp: {
         Args: { p_otp_hash_candidate: string; p_service_record_id: string };
         Returns: {

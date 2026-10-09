@@ -15,6 +15,7 @@ import { compressImage } from '../../lib/image';
 import RoleSwitcher from '../../components/RoleSwitcher';
 import LanguagePicker from '../../components/LanguagePicker';
 import { errorMessage } from '../../lib/errors';
+import { useOwnerOnly } from '../../hooks/useOwnerOnly';
 
 
 interface BusinessInfo {
@@ -55,6 +56,7 @@ export default function GarageSettings() {
     });
 
     const { userData } = useAuth();
+    useOwnerOnly('/garage/work');
     const [garageId, setGarageId] = useState('');
 
     useEffect(() => {
