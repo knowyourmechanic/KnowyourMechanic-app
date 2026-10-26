@@ -7,7 +7,11 @@ name: Keep Supabase warm
 
 on:
   schedule:
-    - cron: "17 6 * * *"   # daily at 06:17 UTC (odd minute = less likely to be delayed)
+    # Twice daily (06:17 + 18:17 UTC). The free-tier pause needs 7 days of
+    # inactivity, so two pings a day make a single missed/delayed GitHub run
+    # harmless. Odd minutes = less likely to be delayed by scheduler load.
+    - cron: "17 6 * * *"
+    - cron: "17 18 * * *"
   workflow_dispatch: {}     # lets you run it manually from the Actions tab
 
 jobs:
