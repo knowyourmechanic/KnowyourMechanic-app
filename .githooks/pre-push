@@ -9,5 +9,14 @@ if ! npm run --silent typecheck; then
   echo "  Emergency bypass (use sparingly): git push --no-verify"
   exit 1
 fi
-echo "✓ Type-check passed — pushing."
+echo "✓ Type-check passed."
+
+echo "▶ Running tests before push (vitest run)…"
+if ! npm run --silent test; then
+  echo ""
+  echo "✗ Tests failed — push blocked. Fix the failures above."
+  echo "  Emergency bypass (use sparingly): git push --no-verify"
+  exit 1
+fi
+echo "✓ Tests passed — pushing."
 exit 0

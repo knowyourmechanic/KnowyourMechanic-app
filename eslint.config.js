@@ -20,4 +20,13 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    // Test files: hooks are exercised through renderHook callbacks, and files
+    // export test-only helpers — neither is a real component/hook violation.
+    files: ['**/*.{test,spec}.{ts,tsx}', 'src/test/**'],
+    rules: {
+      'react-hooks/rules-of-hooks': 'off',
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ])
