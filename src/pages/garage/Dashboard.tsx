@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Settings, Plus, Star, LogOut, Wrench, User, Briefcase, Users,
@@ -67,7 +67,15 @@ export default function GarageDashboard() {
     const [myRole, setMyRole] = useState<MemberRole>('owner');   // 'staff' = garage employee
     const [pendingJoins, setPendingJoins] = useState(0);
     const [garageRating, setGarageRating] = useState(0);   // header pill: always the garage's
+    const [feeLocked, setFeeLocked] = useState(false);     // unpaid fees from before today: freeze the rest of the screen
     const isStaff = myRole === 'staff';
+
+    // The fee card tells us when the garage is locked; everything but the card
+    // below is then dimmed and made untouchable until they settle.
+    const handleFeeStatus = useCallback((s: { owed: number; locked: boolean }) => {
+        setFeeLocked(s.locked);
+    }, []);
+    const lockCls = feeLocked ? 'opacity-40 pointer-events-none select-none' : '';
 
     const navigate = useNavigate();
     const { userData, logout } = useAuth();
@@ -359,7 +367,7 @@ export default function GarageDashboard() {
                 </AnimatePresence>
 
                 {/* Quick Stats */}
-                <div className="grid grid-cols-2 gap-3 mb-8">
+                <div className={`grid grid-cols-2 gap-3 mb-8 ${lockCls}`}>
                     <div className="bg-white dark:bg-[var(--app-surface)] rounded-2xl border border-slate-100 dark:border-[var(--app-border)] p-4 flex flex-col items-center">
                         <div className="w-10 h-10 bg-blue-50 dark:bg-blue-950/40 rounded-xl flex items-center justify-center text-blue-600 mb-2">
                             <Wrench className="w-5 h-5" />
@@ -377,20 +385,21 @@ export default function GarageDashboard() {
                 </div>
 
                 {/* Platform fees owed to KYM (settle in-app via Razorpay) */}
-                {garageId && !isStaff && <FeeSettlementCard garageId={garageId} garageName={garageName} reloadSignal={feeReload} />}
+                {garageId && !isStaff && <FeeSettlementCard garageId={garageId} garageName={garageName} reloadSignal={feeReload} onStatusChange={handleFeeStatus} />}
 
                 {/* Owner: someone is asking to join */}
                 {!isStaff && pendingJoins > 0 && (
                     <button onClick={() => navigate('/garage/team')}
-                        className="w-full mb-6 rounded-2xl px-4 py-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-200 font-semibold text-sm flex items-center justify-between">
+                        className={`w-full mb-6 rounded-2xl px-4 py-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-200 font-semibold text-sm flex items-center justify-between ${lockCls}`}>
                         {t('garage.joinRequests', { count: pendingJoins })} <ChevronRight className="w-4 h-4" />
                     </button>
                 )}
 
                 {/* Add Service Record Button */}
-                <div className="mb-6">
+                <div className={`mb-6 ${lockCls}`}>
                     <button
                         onClick={() => setShowAddService(true)}
+                        disabled={feeLocked}
                         className="w-full bg-blue-600 text-white p-4 rounded-2xl shadow-lg shadow-blue-600/20 active:scale-95 transition-all flex items-center justify-center gap-2"
                     >
                         <Plus className="w-6 h-6" />
@@ -400,11 +409,13 @@ export default function GarageDashboard() {
 
                 {/* Earnings at a glance (from records already loaded) */}
                 {services.some((s) => s.status === 'completed') && (
-                    <EarningsCard title={isStaff ? t('earnings.titleStaff') : undefined} services={services.filter((s) => s.status === 'completed').map((s) => ({ amount: s.amount, createdAt: s.createdAt }))} />
+                    <div className={lockCls}>
+                        <EarningsCard title={isStaff ? t('earnings.titleStaff') : undefined} services={services.filter((s) => s.status === 'completed').map((s) => ({ amount: s.amount, createdAt: s.createdAt }))} />
+                    </div>
                 )}
 
                 {services.length === 0 && (
-                    <div className="text-center py-10 px-6 rounded-3xl border-2 border-dashed border-slate-200 dark:border-[var(--app-border)] mb-6">
+                    <div className={`text-center py-10 px-6 rounded-3xl border-2 border-dashed border-slate-200 dark:border-[var(--app-border)] mb-6 ${lockCls}`}>
                         <Wrench className="w-10 h-10 text-slate-300 mx-auto mb-3" />
                         <p className="font-bold text-slate-800 dark:text-[var(--app-text)] mb-1">{t('garage.emptyTitle')}</p>
                         <p className="text-sm text-slate-500 dark:text-[var(--app-muted)]">{t('garage.emptyBody')}</p>
@@ -413,7 +424,7 @@ export default function GarageDashboard() {
 
                 {/* Recent Services */}
                 {services.length > 0 && (
-                    <div className="mb-6">
+                    <div className={`mb-6 ${lockCls}`}>
                         <div className="mb-3">
                             <h4 className="text-sm font-black text-slate-400 dark:text-[var(--app-muted)] uppercase tracking-[0.15em]">{isStaff ? t('garage.yourServices') : t('garage.recent')}</h4>
                         </div>

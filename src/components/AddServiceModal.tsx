@@ -300,7 +300,7 @@ export default function AddServiceModal({ isOpen, garageId, resume, recent = [],
                                         <input id="add-phone" type="tel" value={customerPhone}
                                             onChange={(e) => setCustomerPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
                                             placeholder={t('add.phonePlaceholder')} inputMode="numeric" autoComplete="off"
-                                            className="w-full h-14 bg-slate-50 dark:bg-[var(--app-bg)] rounded-2xl pl-[5.75rem] pr-4 text-lg font-medium" />
+                                            className="w-full h-14 bg-slate-50 dark:bg-[var(--app-bg)] border border-slate-200 dark:border-[var(--app-border)] focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 rounded-2xl pl-[5.75rem] pr-4 text-lg font-medium" />
                                     </div>
                                 </div>
 
@@ -308,7 +308,7 @@ export default function AddServiceModal({ isOpen, garageId, resume, recent = [],
                                     <label htmlFor="add-vehicle" className="text-sm font-semibold text-slate-600 dark:text-[var(--app-muted)]">{t('add.vehicleNumber')}</label>
                                     <input id="add-vehicle" value={vehicleNumber} onChange={(e) => setVehicleNumber(e.target.value.toUpperCase().slice(0, 13))} placeholder="MH12AB1234"
                                         autoCapitalize="characters"
-                                        className="w-full h-14 bg-slate-50 dark:bg-[var(--app-bg)] rounded-2xl px-4 mt-2 text-lg font-medium tracking-wide uppercase" />
+                                        className="w-full h-14 bg-slate-50 dark:bg-[var(--app-bg)] border border-slate-200 dark:border-[var(--app-border)] focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 rounded-2xl px-4 mt-2 text-lg font-medium tracking-wide uppercase" />
                                     {knownVehicle && vehicleClean !== knownVehicle.replace(/[\s-]/g, '') && (
                                         <button type="button" onClick={() => setVehicleNumber(knownVehicle)}
                                             className="mt-2 text-xs font-bold text-blue-600 bg-blue-50 dark:bg-blue-950/40 rounded-full px-3 py-1.5">
@@ -339,7 +339,7 @@ export default function AddServiceModal({ isOpen, garageId, resume, recent = [],
                                     )}
                                     <textarea id="add-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
                                         placeholder={t('add.notesPlaceholder')}
-                                        className="w-full bg-slate-50 dark:bg-[var(--app-bg)] rounded-2xl px-4 py-3 mt-2 font-medium" />
+                                        className="w-full bg-slate-50 dark:bg-[var(--app-bg)] border border-slate-200 dark:border-[var(--app-border)] focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 rounded-2xl px-4 py-3 mt-2 font-medium" />
                                 </div>
 
                                 <div>
@@ -348,7 +348,7 @@ export default function AddServiceModal({ isOpen, garageId, resume, recent = [],
                                         <IndianRupee className="w-5 h-5 text-slate-400 dark:text-[var(--app-muted)] absolute left-4 top-1/2 -translate-y-1/2" />
                                         <input id="add-amount" value={amount} inputMode="decimal"
                                             onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))}
-                                            placeholder="0" className="w-full h-14 bg-slate-50 dark:bg-[var(--app-bg)] rounded-2xl pl-12 pr-4 text-lg font-semibold" />
+                                            placeholder="0" className="w-full h-14 bg-slate-50 dark:bg-[var(--app-bg)] border border-slate-200 dark:border-[var(--app-border)] focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 rounded-2xl pl-12 pr-4 text-lg font-semibold" />
                                     </div>
                                     {amount !== '' && !amountValid && <p className="text-xs text-red-500 mt-1 ml-1">{t('add.amountInvalid')}</p>}
                                     {amountValid && (
@@ -380,7 +380,7 @@ export default function AddServiceModal({ isOpen, garageId, resume, recent = [],
                                     aria-label={t('add.verifyTitle')}
                                     placeholder="000000" maxLength={6} inputMode="numeric" autoComplete="one-time-code" autoFocus
                                     onKeyDown={(e) => { if (e.key === 'Enter' && otp.length === 6 && !loading) handleVerify(); }}
-                                    className="w-full h-20 bg-slate-50 dark:bg-[var(--app-bg)] rounded-3xl text-center text-4xl font-bold tracking-[1rem]" />
+                                    className="w-full h-20 bg-slate-50 dark:bg-[var(--app-bg)] border border-slate-200 dark:border-[var(--app-border)] focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 rounded-3xl text-center text-4xl font-bold tracking-[1rem]" />
                                 {errorBox}
                                 <button onClick={handleVerify} disabled={otp.length < 6 || loading}
                                     className="w-full h-16 btn-premium rounded-2xl font-bold text-lg text-white flex items-center justify-center gap-2 disabled:opacity-40">

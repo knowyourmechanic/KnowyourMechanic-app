@@ -9,12 +9,14 @@ interface Props {
     garageId: string;
     garageName?: string;
     reloadSignal?: number;   // bump to re-check after a new service accrues a fee
+    // Lets the dashboard dim/disable everything else while the garage is locked.
+    onStatusChange?: (s: { owed: number; locked: boolean }) => void;
 }
 
 // Shows the platform fees a garage owes KYM and lets them settle in-app via
 // Razorpay Standard Checkout. The webhook clears the ledger server-side, so
 // after a successful payment we poll the status until it reflects the payment.
-export default function FeeSettlementCard({ garageId, garageName, reloadSignal }: Props) {
+export default function FeeSettlementCard({ garageId, garageName, reloadSignal, onStatusChange }: Props) {
     const [status, setStatus] = useState<GarageSettlement | null>(null);
     const [enabled, setEnabled] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -36,6 +38,15 @@ export default function FeeSettlementCard({ garageId, garageName, reloadSignal }
     }, [garageId]);
 
     useEffect(() => { load(); }, [load, reloadSignal]);
+
+    // Report lock state up so the dashboard can dim/disable the rest of the screen.
+    // The lock only applies once the flow is enabled and the garage actually owes.
+    useEffect(() => {
+        if (loading) return;
+        const owed = enabled ? (status?.outstanding ?? 0) : 0;
+        const locked = enabled && !!status?.locked && owed > 0;
+        onStatusChange?.({ owed, locked });
+    }, [enabled, status, loading, onStatusChange]);
 
     // Poll the status until the owed amount drops (webhook processed) or we give up.
     const waitForClearance = async (before: number) => {
